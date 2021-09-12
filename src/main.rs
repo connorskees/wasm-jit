@@ -1,20 +1,60 @@
-use error::WResult;
+use error::{WResult, WasmError};
+use interpreter::Interpreter;
 use opcode::Instruction;
 use parse::ModuleParser;
 
 mod error;
+mod instance;
+mod interpreter;
+mod num;
 mod opcode;
 mod parse;
 mod section;
+mod stack;
+mod store;
 
 fn main() -> WResult<()> {
-    let buffer = std::fs::read("./test.wasm").unwrap();
+    let buffer = std::fs::read("./fact.wasm").unwrap();
 
-    let mut parser = ModuleParser::new(&buffer);
+    let interpreter = Interpreter::new(&buffer)?;
 
-    parser.parse()?;
+    interpreter.invoke()?;
 
     Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Module<'a> {
+    pub(crate) types: Vec<FuncType>,
+    pub(crate) funcs: Vec<Function>,
+    pub(crate) tables: Vec<TableType>,
+    pub(crate) mems: Vec<MemoryType>,
+    pub(crate) globals: Vec<Global>,
+    pub(crate) elems: Vec<Element>,
+    pub(crate) data: Vec<DataSegment<'a>>,
+    pub(crate) start: u32,
+    pub(crate) imports: Vec<Import<'a>>,
+    pub(crate) exports: Vec<Export<'a>>,
+}
+
+impl<'a> Module<'a> {
+    pub fn new(buffer: &'a [u8]) -> WResult<Self> {
+        ModuleParser::new(&buffer).parse()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Element {
+    ty: RefType,
+    init: Vec<Expr>,
+    mode: ElemMode,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ElemMode {
+    Passive,
+    Active { table_idx: u32, offset: Expr },
+    Declarative,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,28 +67,46 @@ pub enum ValueType {
     ExternRef,
 }
 
-#[derive(Debug)]
+impl ValueType {
+    pub fn zero(&self) -> Value {
+        match self {
+            Self::I32 => Value::I32(0),
+            Self::I64 => Value::I64(0),
+            Self::F32 => Value::F32(0.0),
+            Self::F64 => Value::F64(0.0),
+            Self::FuncRef | Self::ExternRef => todo!(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct ResultType(Vec<ValueType>);
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FuncType(ResultType, ResultType);
 
-#[derive(Debug)]
+impl FuncType {
+    pub fn number_of_args(&self) -> usize {
+        (self.0).0.len()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Import<'a> {
     mod_name: &'a str,
     name: &'a str,
     description: ImportDescription,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ImportDescription {
-    Idx(u32),
+    Func(u32),
     Table(TableType),
     Mem(MemoryType),
     Global(GlobalType),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ExportDescription {
     FuncIdx(u32),
     TableIdx(u32),
@@ -56,69 +114,70 @@ pub enum ExportDescription {
     GlobalIdx(u32),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TableType {
     element: RefType,
     limit: Limit,
 }
 
-#[derive(Debug)]
-struct GlobalType {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GlobalType {
     val_type: ValueType,
     mutability: Mutability,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limit {
     min: u32,
     max: Option<u32>,
 }
 
-#[derive(Debug)]
-struct MemoryType {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemoryType {
     lim: Limit,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum RefType {
     FuncRef,
     ExternRef,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Expr(Vec<Instruction>);
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mutability {
     Const = 0x00,
     Var = 0x01,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Global {
     global_type: GlobalType,
-    expr: Expr,
+    init: Expr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Export<'a> {
     name: &'a str,
     description: ExportDescription,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Function {
+    type_idx: u32,
     locals: Vec<ValueType>,
     expr: Expr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DataSegment<'a> {
     init: &'a [u8],
     mode: DataMode,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum DataMode {
     Passive,
     Active { mem_idx: u32, offset: Expr },
@@ -135,4 +194,52 @@ pub enum BlockType {
 pub struct MemoryOperand {
     align: u32,
     offset: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ref {
+    Null,
+    FuncAddr(u32),
+    Extern(u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Value {
+    Ref(Ref),
+    I32(i32),
+    I64(i64),
+    F32(f32),
+    F64(f64),
+}
+
+impl Value {
+    pub fn assert_i32(self) -> WResult<i32> {
+        match self {
+            Self::I32(n) => Ok(n),
+            _ => Err(WasmError::InvalidType),
+        }
+    }
+
+    pub fn assert_i64(self) -> WResult<i64> {
+        match self {
+            Self::I64(n) => Ok(n),
+            _ => Err(WasmError::InvalidType),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ExternValue {
+    Func(usize),
+    Table(usize),
+    Mem(usize),
+    Global(usize),
+}
+
+#[derive(Debug)]
+pub enum ExternType {
+    Func(FuncType),
+    Table(TableType),
+    Mem(MemoryType),
+    Global(GlobalType),
 }

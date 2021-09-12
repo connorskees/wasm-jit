@@ -16,6 +16,10 @@ pub enum WasmError {
     InvalidLimitFlag { n: u8 },
     InvalidGlobalMutability { n: u8 },
     InvalidOpCode { op: u16 },
+    InvalidNumberOfArgs,
+    InvalidType,
+    StackUnderflow,
+    TooFewLocals,
 }
 
 impl fmt::Display for WasmError {

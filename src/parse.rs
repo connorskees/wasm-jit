@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use crate::{
     error::{WResult, WasmError},
     opcode::{Instruction, OpCode},
@@ -6,8 +8,8 @@ use crate::{
         MemorySection, Section, TableSection, TypeSection,
     },
     BlockType, DataMode, DataSegment, Export, ExportDescription, Expr, FuncType, Function, Global,
-    GlobalType, Import, ImportDescription, Limit, MemoryOperand, MemoryType, Mutability, RefType,
-    ResultType, TableType, ValueType,
+    GlobalType, Import, ImportDescription, Limit, MemoryOperand, MemoryType, Module, Mutability,
+    RefType, ResultType, TableType, ValueType,
 };
 
 const MAGIC: &[u8] = b"\0asm";
@@ -16,22 +18,39 @@ const VERSION: &[u8] = &[1, 0, 0, 0];
 pub(crate) struct ModuleParser<'a> {
     cursor: usize,
     buffer: &'a [u8],
+    func_types: VecDeque<u32>,
 }
 
 impl<'a> ModuleParser<'a> {
     pub fn new(buffer: &'a [u8]) -> Self {
-        Self { buffer, cursor: 0 }
+        Self {
+            buffer,
+            cursor: 0,
+            func_types: VecDeque::new(),
+        }
     }
 
-    pub fn parse(&mut self) -> WResult<()> {
+    pub fn parse(mut self) -> WResult<Module<'a>> {
         self.expect_magic()?;
         self.expect_version()?;
 
+        let mut module = Module::default();
+
         while self.buffer.len() > self.cursor {
-            dbg!(self.parse_section().unwrap());
+            match self.parse_section()? {
+                Section::Export(mut export) => module.exports.append(&mut export.exports),
+                Section::Import(mut import) => module.imports.append(&mut import.imports),
+                Section::Type(mut ty) => module.types.append(&mut ty.fn_types),
+                Section::Function(function) => self.func_types.extend(function.type_idxs),
+                Section::Table(mut table) => module.tables.append(&mut table.table_types),
+                Section::Memory(mut memory) => module.mems.append(&mut memory.mem_types),
+                Section::Global(mut global) => module.globals.append(&mut global.globals),
+                Section::Code(mut code) => module.funcs.append(&mut code.functions),
+                Section::Data(mut data) => module.data.append(&mut data.data_segments),
+            }
         }
 
-        Ok(())
+        Ok(module)
     }
 
     fn expect_magic(&mut self) -> WResult<()> {
@@ -101,7 +120,7 @@ impl<'a> ModuleParser<'a> {
         let mut result = 0;
         let mut shift = 0;
 
-        let size = u32::BITS;
+        let size = i32::BITS;
 
         let mut byte;
 
@@ -127,7 +146,32 @@ impl<'a> ModuleParser<'a> {
     }
 
     fn read_i64(&mut self) -> WResult<i64> {
-        todo!()
+        let mut result = 0;
+        let mut shift = 0;
+
+        let size = i64::BITS;
+
+        let mut byte;
+
+        loop {
+            byte = self.next_byte()?;
+            let low = i64::from(byte & 0b0111_1111);
+            let high = byte & 0b1000_0000;
+
+            result |= low << shift;
+
+            shift += 7;
+
+            if high == 0 {
+                break;
+            }
+        }
+
+        if shift < size && (byte & 0b1000_0000) != 0 {
+            result |= !0 << shift;
+        }
+
+        Ok(result)
     }
 
     fn read_f32(&mut self) -> WResult<f32> {
@@ -161,7 +205,7 @@ impl<'a> ModuleParser<'a> {
         let id = self.next_byte()?;
         let _size = self.read_u32()?;
 
-        Ok(match id {
+        Ok(match dbg!(id) {
             0 => todo!("custom"),
             1 => Section::Type(self.parse_type_section()?),
             2 => Section::Import(self.parse_import_section()?),
@@ -316,6 +360,8 @@ impl<'a> ModuleParser<'a> {
     fn parse_function(&mut self) -> WResult<Function> {
         let _size = self.read_u32()?;
 
+        let type_idx = self.func_types.pop_front().unwrap();
+
         let num_of_locals = self.read_u32()?;
 
         let mut locals = Vec::with_capacity(num_of_locals as usize);
@@ -330,7 +376,11 @@ impl<'a> ModuleParser<'a> {
 
         let expr = self.parse_expr()?;
 
-        Ok(Function { locals, expr })
+        Ok(Function {
+            type_idx,
+            locals,
+            expr,
+        })
     }
 
     fn parse_export(&mut self) -> WResult<Export<'a>> {
@@ -356,30 +406,42 @@ impl<'a> ModuleParser<'a> {
 
     fn parse_global(&mut self) -> WResult<Global> {
         let global_type = self.parse_global_type()?;
-        let expr = self.parse_expr()?;
+        let init = self.parse_expr()?;
 
-        Ok(Global { global_type, expr })
+        Ok(Global { global_type, init })
     }
 
     fn parse_expr(&mut self) -> WResult<Expr> {
         let mut instructions = Vec::new();
 
+        let mut nested = 1;
+
         loop {
             let inst = self.next_instruction()?;
 
+            if inst.requires_end() {
+                nested += 1;
+            }
+
             if inst == Instruction::End {
-                break;
+                nested -= 1;
+
+                if nested == 0 {
+                    break;
+                }
             }
 
             instructions.push(inst);
         }
+
+        dbg!(&instructions);
 
         Ok(Expr(instructions))
     }
 
     fn parse_import_description(&mut self) -> WResult<ImportDescription> {
         Ok(match self.next_byte()? {
-            0x00 => ImportDescription::Idx(self.read_u32()?),
+            0x00 => ImportDescription::Func(self.read_u32()?),
             0x01 => ImportDescription::Table(self.parse_table_type()?),
             0x02 => ImportDescription::Mem(self.parse_mem_type()?),
             0x03 => ImportDescription::Global(self.parse_global_type()?),
@@ -937,6 +999,15 @@ impl<'a> ModuleParser<'a> {
     }
 
     fn parse_block_type(&mut self) -> WResult<BlockType> {
-        todo!()
+        Ok(match self.next_byte()? {
+            0x40 => BlockType::Empty,
+            0x7f => BlockType::ValType(ValueType::I32),
+            0x7e => BlockType::ValType(ValueType::I64),
+            0x7d => BlockType::ValType(ValueType::F32),
+            0x7c => BlockType::ValType(ValueType::F64),
+            0x70 => BlockType::ValType(ValueType::FuncRef),
+            0x6f => BlockType::ValType(ValueType::ExternRef),
+            _ => todo!(),
+        })
     }
 }

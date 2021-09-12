@@ -207,7 +207,7 @@ pub enum OpCode {
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Instruction {
     Unreachable,
     Nop,
@@ -410,4 +410,13 @@ pub enum Instruction {
     TableGrow(u32),
     TableSize(u32),
     TableFill(u32),
+}
+
+impl Instruction {
+    pub fn requires_end(&self) -> bool {
+        match self {
+            Self::Block(..) | Self::Loop(..) | Self::If(..) => true,
+            _ => false,
+        }
+    }
 }
