@@ -7,6 +7,7 @@ use crate::{
         CodeSection, DataSection, ExportSection, FunctionSection, GlobalSection, ImportSection,
         MemorySection, Section, TableSection, TypeSection,
     },
+    stack::Label,
     BlockType, DataMode, DataSegment, Export, ExportDescription, Expr, FuncType, Function, Global,
     GlobalType, Import, ImportDescription, Limit, MemoryOperand, MemoryType, Module, Mutability,
     RefType, ResultType, TableType, ValueType,
@@ -138,7 +139,7 @@ impl<'a> ModuleParser<'a> {
             }
         }
 
-        if shift < size && (byte & 0b1000_0000) != 0 {
+        if shift < size && (byte & 0x40) != 0 {
             result |= !0 << shift;
         }
 
@@ -205,7 +206,7 @@ impl<'a> ModuleParser<'a> {
         let id = self.next_byte()?;
         let _size = self.read_u32()?;
 
-        Ok(match dbg!(id) {
+        Ok(match id {
             0 => todo!("custom"),
             1 => Section::Type(self.parse_type_section()?),
             2 => Section::Import(self.parse_import_section()?),
@@ -412,29 +413,53 @@ impl<'a> ModuleParser<'a> {
     }
 
     fn parse_expr(&mut self) -> WResult<Expr> {
-        let mut instructions = Vec::new();
+        let mut instructions: Vec<Instruction> = Vec::new();
 
-        let mut nested = 1;
+        let mut nested = Vec::new();
 
         loop {
-            let inst = self.next_instruction()?;
+            let op_code = self.next_op_code()?;
 
-            if inst.requires_end() {
-                nested += 1;
-            }
+            let inst = match op_code {
+                OpCode::Block => {
+                    let block_type = self.parse_block_type()?;
 
-            if inst == Instruction::End {
-                nested -= 1;
+                    let start = instructions.len();
 
-                if nested == 0 {
-                    break;
+                    let label = Label::incomplete_block(block_type);
+
+                    nested.push(start);
+
+                    Instruction::Block(label)
                 }
-            }
+                OpCode::Loop => {
+                    let block_type = self.parse_block_type()?;
+                    let start = instructions.len();
+
+                    let label = Label::new_loop(start, block_type);
+
+                    nested.push(start);
+
+                    Instruction::Loop(label)
+                }
+                OpCode::If => todo!(),
+                OpCode::End => {
+                    let end = instructions.len();
+
+                    instructions.push(Instruction::End);
+
+                    if let Some(block_idx) = nested.pop() {
+                        instructions[block_idx].set_label_end(end);
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+                _ => self.parse_immediates(op_code)?,
+            };
 
             instructions.push(inst);
         }
-
-        dbg!(&instructions);
 
         Ok(Expr(instructions))
     }
@@ -553,8 +578,8 @@ impl<'a> ModuleParser<'a> {
         Ok(ResultType(types))
     }
 
-    fn next_instruction(&mut self) -> WResult<Instruction> {
-        let op_code = match self.next_byte()? {
+    fn next_op_code(&mut self) -> WResult<OpCode> {
+        Ok(match self.next_byte()? {
             0x00 => OpCode::Unreachable,
             0x01 => OpCode::Nop,
             0x02 => OpCode::Block,
@@ -764,11 +789,7 @@ impl<'a> ModuleParser<'a> {
                 }
             },
             op => return Err(WasmError::InvalidOpCode { op: op as u16 }),
-        };
-
-        let instruction = self.parse_immediates(op_code)?;
-
-        Ok(instruction)
+        })
     }
 
     fn parse_branch_table_immediate(&mut self) -> WResult<Vec<u32>> {
@@ -790,9 +811,7 @@ impl<'a> ModuleParser<'a> {
         Ok(match op_code {
             OpCode::Unreachable => Instruction::Unreachable,
             OpCode::Nop => Instruction::Nop,
-            OpCode::Block => Instruction::Block(self.parse_block_type()?),
-            OpCode::Loop => Instruction::Loop(self.parse_block_type()?),
-            OpCode::If => Instruction::If(self.parse_block_type()?),
+            OpCode::Block | OpCode::Loop | OpCode::If => unreachable!(),
             OpCode::Else => Instruction::Else,
             OpCode::End => Instruction::End,
             OpCode::Branch => Instruction::Branch(self.read_u32()?),

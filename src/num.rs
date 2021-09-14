@@ -1,87 +1,91 @@
 use crate::{error::WResult, Value};
 
-pub trait Num<const BYTES: usize> {
-    const BITS: usize = BYTES * 8;
-    const BYTES: usize = BYTES;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sign {
+    Signed,
+    Unsigned,
+}
 
-    // todo: use Self::BYTES to avoid superfluous generic
-    fn from_le_bytes(bytes: [u8; BYTES]) -> Self;
-    fn to_le_bytes(self) -> [u8; BYTES];
+pub trait Num: Copy + std::fmt::Debug {
+    const BYTES: usize;
+    const BITS: usize = Self::BYTES * 8;
+    type Signed: Num;
+
+    fn from_le_bytes(bytes: [u8; Self::BYTES]) -> Self
+    where
+        [(); Self::BYTES]: Sized;
+
+    fn to_le_bytes(self) -> [u8; Self::BYTES]
+    where
+        [(); Self::BYTES]: Sized;
 
     fn as_value(self) -> Value;
     fn from_value(val: Value) -> WResult<Self>
     where
         Self: Sized;
-}
 
-impl Num<4> for i32 {
-    fn from_le_bytes(bytes: [u8; 4]) -> Self {
-        i32::from_le_bytes(bytes)
+    fn signed(self) -> Self::Signed;
+
+    /// Reinterprets `self` as `N`
+    fn extend_unsigned<N: Num>(&self) -> N
+    where
+        Self: Sized,
+        // convoluted way of determining that N::BYTES > Self::BYTES
+        [(); -((N::BYTES < Self::BYTES) as isize) as usize + 1]: Sized,
+    {
+        let mut buffer = [0; N::BYTES];
+
+        buffer[..Self::BYTES].copy_from_slice(&self.to_le_bytes());
+
+        N::from_le_bytes(buffer)
     }
 
-    fn to_le_bytes(self) -> [u8; 4] {
-        self.to_le_bytes()
-    }
+    fn extend_signed<N: Num>(&self) -> N
+    where
+        Self: Sized,
+        // convoluted way of determining that N::BYTES > Self::BYTES
+        [(); -((N::BYTES < Self::BYTES) as isize) as usize + 1]: Sized,
+    {
+        let signed = self.signed();
 
-    fn as_value(self) -> Value {
-        Value::I32(self)
-    }
+        let mut buffer = [0; N::BYTES];
 
-    fn from_value(val: Value) -> WResult<Self> {
-        val.assert_i32()
-    }
-}
+        buffer[..Self::BYTES].copy_from_slice(&self.to_le_bytes());
 
-impl Num<4> for u32 {
-    fn from_le_bytes(bytes: [u8; 4]) -> Self {
-        u32::from_le_bytes(bytes)
-    }
-
-    fn to_le_bytes(self) -> [u8; 4] {
-        self.to_le_bytes()
-    }
-
-    fn as_value(self) -> Value {
-        Value::I32(self as i32)
-    }
-
-    fn from_value(val: Value) -> WResult<Self> {
-        Ok(val.assert_i32()? as u32)
+        N::from_le_bytes(buffer)
     }
 }
 
-impl Num<8> for i64 {
-    fn from_le_bytes(bytes: [u8; 8]) -> Self {
-        i64::from_le_bytes(bytes)
-    }
+macro_rules! impl_num {
+    ($num:ty, $signed:ty, $bytes:literal, $value:ident, $value_assert:ident) => {
+        impl Num for $num {
+            const BYTES: usize = $bytes;
+            type Signed = $signed;
 
-    fn to_le_bytes(self) -> [u8; 8] {
-        self.to_le_bytes()
-    }
+            fn from_le_bytes(bytes: [u8; Self::BYTES]) -> Self {
+                <$num>::from_le_bytes(bytes)
+            }
 
-    fn as_value(self) -> Value {
-        Value::I64(self)
-    }
+            fn to_le_bytes(self) -> [u8; Self::BYTES] {
+                self.to_le_bytes()
+            }
 
-    fn from_value(val: Value) -> WResult<Self> {
-        val.assert_i64()
-    }
+            fn as_value(self) -> Value {
+                Value::$value(self as $signed)
+            }
+
+            fn from_value(val: Value) -> WResult<Self> {
+                Ok(val.$value_assert()? as $num)
+            }
+
+            fn signed(self) -> Self::Signed {
+                self as $signed
+            }
+        }
+    };
 }
 
-impl Num<8> for u64 {
-    fn from_le_bytes(bytes: [u8; 8]) -> Self {
-        u64::from_le_bytes(bytes)
-    }
-
-    fn to_le_bytes(self) -> [u8; 8] {
-        self.to_le_bytes()
-    }
-
-    fn as_value(self) -> Value {
-        Value::I64(self as i64)
-    }
-
-    fn from_value(val: Value) -> WResult<Self> {
-        Ok(val.assert_i64()? as u64)
-    }
-}
+impl_num!(i32, i32, 4, I32, assert_i32);
+impl_num!(u32, i32, 4, I32, assert_i32);
+impl_num!(i64, i64, 8, I64, assert_i64);
+impl_num!(u64, i64, 8, I64, assert_i64);

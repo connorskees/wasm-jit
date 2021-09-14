@@ -3,9 +3,9 @@ use std::convert::TryInto;
 use crate::{
     error::{WResult, WasmError},
     instance::{FuncInst, ModuleInst},
-    num::Num,
+    num::{Num, Sign},
     opcode::Instruction,
-    stack::{Frame, Stack, StackEntry},
+    stack::{Frame, Label, Stack, StackEntry},
     store::Store,
     Expr, MemoryOperand, Module, Value, ValueType,
 };
@@ -70,29 +70,83 @@ impl<'a> Interpreter<'a> {
     }
 
     fn invoke_expr(&mut self, expr: &Expr, frame: &mut Frame) -> WResult<Value> {
-        for inst in &expr.0 {
-            match inst {
+        let mut idx = 0;
+
+        while idx < expr.0.len() {
+            match &expr.0[idx] {
                 Instruction::LocalGet(n) => self.local_get(*n, frame)?,
-                Instruction::i32Add => self.i32_add()?,
-                Instruction::i32Sub => self.i32_sub()?,
+                Instruction::LocalSet(n) => self.local_set(*n, frame)?,
+                Instruction::LocalTee(n) => self.local_tee(*n, frame)?,
+
+                Instruction::i32Add => self.bin_op::<i32>(&|a, b| b.wrapping_add(a))?,
+                Instruction::i64Add => self.bin_op::<i64>(&|a, b| b.wrapping_add(a))?,
+                Instruction::i32Sub => self.bin_op::<i32>(&|a, b| b.wrapping_sub(a))?,
+                Instruction::i64Sub => self.bin_op::<i64>(&|a, b| b.wrapping_sub(a))?,
+                Instruction::i32Mul => self.bin_op::<i32>(&|a, b| b.wrapping_mul(a))?,
+                Instruction::i64Mul => self.bin_op::<i64>(&|a, b| b.wrapping_mul(a))?,
+                Instruction::i32BitwiseAnd => self.bin_op::<i32>(&|a, b| b & a)?,
+                Instruction::i64BitwiseAnd => self.bin_op::<i64>(&|a, b| b & a)?,
+                Instruction::i32BitwiseOr => self.bin_op::<i32>(&|a, b| b | a)?,
+                Instruction::i64BitwiseOr => self.bin_op::<i64>(&|a, b| b | a)?,
+                Instruction::i32BitwiseXor => self.bin_op::<i32>(&|a, b| b ^ a)?,
+                Instruction::i64BitwiseXor => self.bin_op::<i64>(&|a, b| b ^ a)?,
+
                 Instruction::i32Const(n) => self.stack.push_value(Value::I32(*n)),
                 Instruction::i64Const(n) => self.stack.push_value(Value::I64(*n)),
                 Instruction::f32Const(n) => self.stack.push_value(Value::F32(*n)),
                 Instruction::f64Const(n) => self.stack.push_value(Value::F64(*n)),
-                Instruction::i32Load(mem_arg) => self.load::<i32, 4>(*mem_arg, frame)?,
-                Instruction::i64Load(mem_arg) => self.load::<i64, 8>(*mem_arg, frame)?,
-                Instruction::i32Store(mem_arg) => self.store::<i32, 4>(*mem_arg, frame)?,
-                Instruction::i64Store(mem_arg) => self.store::<i64, 8>(*mem_arg, frame)?,
-                Instruction::LocalTee(n) => self.local_tee(*n, frame)?,
-                Instruction::LocalSet(n) => self.local_set(*n, frame)?,
-                _ => todo!("{:?}", inst),
+
+                Instruction::i32Load(mem_arg) => self.load::<i32>(*mem_arg, frame)?,
+                Instruction::i64Load(mem_arg) => self.load::<i64>(*mem_arg, frame)?,
+
+                Instruction::i32LtSigned => self.rel_op::<i32>(&|a, b| a < b)?,
+                Instruction::i64LtSigned => self.rel_op::<i64>(&|a, b| a < b)?,
+                Instruction::i32LeSigned => self.rel_op::<i32>(&|a, b| a <= b)?,
+                Instruction::i64LeSigned => self.rel_op::<i64>(&|a, b| a <= b)?,
+                Instruction::i32GtSigned => self.rel_op::<i32>(&|a, b| a > b)?,
+                Instruction::i64GtSigned => self.rel_op::<i64>(&|a, b| a > b)?,
+                Instruction::i32GeSigned => self.rel_op::<i32>(&|a, b| a >= b)?,
+                Instruction::i64GeSigned => self.rel_op::<i64>(&|a, b| a >= b)?,
+                Instruction::i32LtUnsigned => self.rel_op::<u32>(&|a, b| a < b)?,
+                Instruction::i64LtUnsigned => self.rel_op::<u64>(&|a, b| a < b)?,
+                Instruction::i32LeUnsigned => self.rel_op::<u32>(&|a, b| a <= b)?,
+                Instruction::i64LeUnsigned => self.rel_op::<u64>(&|a, b| a <= b)?,
+                Instruction::i32GtUnsigned => self.rel_op::<u32>(&|a, b| a > b)?,
+                Instruction::i64GtUnsigned => self.rel_op::<u64>(&|a, b| a > b)?,
+                Instruction::i32GeUnsigned => self.rel_op::<u32>(&|a, b| a >= b)?,
+                Instruction::i64GeUnsigned => self.rel_op::<u64>(&|a, b| a >= b)?,
+                Instruction::i32Eq => self.rel_op::<i32>(&|a, b| a == b)?,
+                Instruction::i64Eq => self.rel_op::<i64>(&|a, b| a == b)?,
+                Instruction::i32Ne => self.rel_op::<i32>(&|a, b| a != b)?,
+                Instruction::i64Ne => self.rel_op::<i64>(&|a, b| a != b)?,
+
+                Instruction::i32Store(mem_arg) => self.store::<i32>(*mem_arg, frame)?,
+                Instruction::i64Store(mem_arg) => self.store::<i64>(*mem_arg, frame)?,
+
+                Instruction::i64Load32Signed(mem_arg) => {
+                    self.load_n::<i64, i32>(*mem_arg, frame, Sign::Signed)?
+                }
+
+                Instruction::Block(label) => self.block(*label)?,
+                Instruction::Loop(label) => self.do_loop(*label)?,
+                Instruction::BranchIf(n) => {
+                    if let Some(new_idx) = self.branch_if(*n)? {
+                        idx = new_idx;
+                    }
+                }
+                Instruction::Branch(n) => idx = self.branch(*n)?,
+                Instruction::f64SignedConvertI64 => self.f64_signed_convert_i64()?,
+                Instruction::End => {}
+                inst => todo!("{:?}", inst),
             }
+
+            idx += 1;
         }
 
         self.stack.pop_value()
     }
 
-    fn trap(&mut self) -> ! {
+    fn trap(&self) -> ! {
         todo!()
     }
 }
@@ -131,29 +185,89 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
-    fn i32_add(&mut self) -> WResult<()> {
-        let a = self.stack.pop_i32()?;
-        let b = self.stack.pop_i32()?;
+    fn f64_signed_convert_i64(&mut self) -> WResult<()> {
+        let a = self.stack.pop_i64()?;
 
-        self.stack.push_value(Value::I32(a.wrapping_add(b)));
-
-        Ok(())
-    }
-
-    fn i32_sub(&mut self) -> WResult<()> {
-        let a = self.stack.pop_i32()?;
-        let b = self.stack.pop_i32()?;
-
-        self.stack.push_value(Value::I32(a.wrapping_sub(b)));
+        self.stack.push_value(Value::F64(a as f64));
 
         Ok(())
     }
 
-    fn store<N: Num<B>, const B: usize>(
-        &mut self,
-        mem_arg: MemoryOperand,
-        frame: &Frame,
-    ) -> WResult<()> {
+    fn branch(&mut self, nth_label: u32) -> WResult<usize> {
+        let label = self.stack.find_label(nth_label).unwrap();
+
+        let vals = self.stack.pop_n(label.arity() as usize).unwrap();
+
+        for _ in 0..=nth_label {
+            while let Some(entry) = self.stack.pop() {
+                match entry {
+                    StackEntry::Activation(..) | StackEntry::Value(..) => continue,
+                    StackEntry::Label(..) => break,
+                }
+            }
+        }
+
+        self.stack.push(StackEntry::Label(label));
+
+        for val in vals {
+            self.stack.push(val);
+        }
+
+        Ok(label.continuation)
+    }
+
+    fn branch_if(&mut self, nth_label: u32) -> WResult<Option<usize>> {
+        let val = self.stack.pop_i32()?;
+
+        if val == 0 {
+            return Ok(None);
+        }
+
+        Ok(Some(self.branch(nth_label)?))
+    }
+
+    fn block(&mut self, label: Label) -> WResult<()> {
+        assert_eq!(label.arity(), 0);
+
+        self.stack.push(StackEntry::Label(label));
+
+        Ok(())
+    }
+
+    fn do_loop(&mut self, label: Label) -> WResult<()> {
+        assert_eq!(label.arity(), 0);
+
+        self.stack.push(StackEntry::Label(label));
+
+        Ok(())
+    }
+
+    fn bin_op<N: Num>(&mut self, op: &dyn Fn(N, N) -> N) -> WResult<()> {
+        let b = N::from_value(self.stack.pop_value()?)?;
+        let a = N::from_value(self.stack.pop_value()?)?;
+
+        let c = op(a, b);
+
+        self.stack.push_value(c.as_value());
+
+        Ok(())
+    }
+
+    fn rel_op<N: Num>(&mut self, op: &dyn Fn(N, N) -> bool) -> WResult<()> {
+        let b = N::from_value(self.stack.pop_value()?)?;
+        let a = N::from_value(self.stack.pop_value()?)?;
+
+        let c = op(a, b);
+
+        self.stack.push_value(Value::I32(c as i32));
+
+        Ok(())
+    }
+
+    fn store<N: Num>(&mut self, mem_arg: MemoryOperand, frame: &Frame) -> WResult<()>
+    where
+        [(); N::BYTES]: Sized,
+    {
         let module = &self.module_insts[frame.module_idx as usize];
         let a = module.mem_addrs[0];
 
@@ -178,27 +292,59 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
-    fn load<N: Num<B>, const B: usize>(
-        &mut self,
-        mem_arg: MemoryOperand,
-        frame: &Frame,
-    ) -> WResult<()> {
-        let module = &self.module_insts[frame.module_idx as usize];
-        let a = module.mem_addrs[0];
-
-        let mem = &self.store.mems[a];
+    fn load_buffer(&mut self, mem_arg: MemoryOperand, frame: &Frame, n: usize) -> WResult<&[u8]> {
+        let mem = {
+            let module = &self.module_insts[frame.module_idx as usize];
+            let addr = module.mem_addrs[0];
+            &self.store.mems[addr]
+        };
 
         let i = self.stack.pop_i32()?;
 
         let ea = i as usize + mem_arg.offset as usize;
 
-        if ea + N::BITS / 8 > mem.data.len() {
-            self.trap();
+        if ea + n / 8 > mem.data.len() {
+            self.trap()
         }
 
-        let buffer = &mem.data[(ea as usize)..(ea + (N::BITS / 8))];
+        let buffer = &mem.data[(ea as usize)..(ea + (n / 8))];
 
-        let bytes: [u8; B] = buffer.try_into().unwrap();
+        Ok(buffer)
+    }
+
+    fn load_n<N: Num, N2: Num>(
+        &mut self,
+        mem_arg: MemoryOperand,
+        frame: &Frame,
+        sign: Sign,
+    ) -> WResult<()>
+    where
+        [(); N::BYTES]: Sized,
+        [(); N2::BYTES]: Sized,
+        [(); -((N::BYTES < N2::BYTES) as isize) as usize + 1]: Sized,
+    {
+        let buffer = self.load_buffer(mem_arg, frame, N2::BITS)?;
+        let bytes: [u8; N2::BYTES] = buffer.try_into().unwrap();
+
+        let n = N2::from_le_bytes(bytes);
+
+        let c = match sign {
+            Sign::Unsigned => n.extend_unsigned::<N>().as_value(),
+            // todo: almost certainly wrong
+            Sign::Signed => n.extend_signed::<N>().as_value(),
+        };
+
+        self.stack.push_value(c);
+
+        Ok(())
+    }
+
+    fn load<N: Num>(&mut self, mem_arg: MemoryOperand, frame: &Frame) -> WResult<()>
+    where
+        [(); N::BYTES]: Sized,
+    {
+        let buffer = self.load_buffer(mem_arg, frame, N::BITS)?;
+        let bytes: [u8; N::BYTES] = buffer.try_into().unwrap();
 
         self.stack.push_value(N::from_le_bytes(bytes).as_value());
 

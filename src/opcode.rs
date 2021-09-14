@@ -1,4 +1,4 @@
-use crate::{BlockType, MemoryOperand, RefType, ValueType};
+use crate::{stack::Label, MemoryOperand, RefType, ValueType};
 
 #[allow(non_camel_case_types)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -211,9 +211,9 @@ pub enum OpCode {
 pub enum Instruction {
     Unreachable,
     Nop,
-    Block(BlockType),
-    Loop(BlockType),
-    If(BlockType),
+    Block(Label),
+    Loop(Label),
+    If(Label),
     Else,
     End,
     Branch(u32),
@@ -413,10 +413,12 @@ pub enum Instruction {
 }
 
 impl Instruction {
-    pub fn requires_end(&self) -> bool {
+    pub fn set_label_end(&mut self, end: usize) {
         match self {
-            Self::Block(..) | Self::Loop(..) | Self::If(..) => true,
-            _ => false,
-        }
+            Self::Block(label) => label.continuation = end,
+            Self::Loop(..) => {}
+            Self::If(..) => todo!(),
+            inst => panic!("{:?}", inst),
+        };
     }
 }

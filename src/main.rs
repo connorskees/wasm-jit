@@ -1,3 +1,7 @@
+#![feature(adt_const_params)]
+#![feature(generic_const_exprs)]
+#![allow(incomplete_features)]
+
 use error::{WResult, WasmError};
 use interpreter::Interpreter;
 use opcode::Instruction;
@@ -14,7 +18,7 @@ mod stack;
 mod store;
 
 fn main() -> WResult<()> {
-    let buffer = std::fs::read("./fact.wasm").unwrap();
+    let buffer = std::fs::read("./if.wasm").unwrap();
 
     let interpreter = Interpreter::new(&buffer)?;
 
