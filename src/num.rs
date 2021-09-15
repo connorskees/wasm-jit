@@ -57,7 +57,7 @@ pub trait Num: Copy + std::fmt::Debug {
 }
 
 macro_rules! impl_num {
-    ($num:ty, $signed:ty, $bytes:literal, $value:ident, $value_assert:ident) => {
+    ($num:ty, $signed:ty, $actual:ty, $bytes:literal, $value:ident, $value_assert:ident) => {
         impl Num for $num {
             const BYTES: usize = $bytes;
             type Signed = $signed;
@@ -71,7 +71,7 @@ macro_rules! impl_num {
             }
 
             fn as_value(self) -> Value {
-                Value::$value(self as $signed)
+                Value::$value(self as $actual)
             }
 
             fn from_value(val: Value) -> WResult<Self> {
@@ -85,9 +85,14 @@ macro_rules! impl_num {
     };
 }
 
-impl_num!(i32, i32, 4, I32, assert_i32);
-impl_num!(u32, i32, 4, I32, assert_i32);
-impl_num!(f32, f32, 4, F32, assert_f32);
-impl_num!(i64, i64, 8, I64, assert_i64);
-impl_num!(u64, i64, 8, I64, assert_i64);
-impl_num!(f64, f64, 8, F64, assert_f64);
+impl_num!(i8, i8, i32, 1, I32, assert_i32);
+impl_num!(u8, i8, i32, 1, I32, assert_i32);
+impl_num!(i16, i16, i32, 2, I32, assert_i32);
+impl_num!(u16, i16, i32, 2, I32, assert_i32);
+
+impl_num!(i32, i32, i32, 4, I32, assert_i32);
+impl_num!(u32, i32, i32, 4, I32, assert_i32);
+impl_num!(f32, f32, f32, 4, F32, assert_f32);
+impl_num!(i64, i64, i64, 8, I64, assert_i64);
+impl_num!(u64, i64, i64, 8, I64, assert_i64);
+impl_num!(f64, f64, f64, 8, F64, assert_f64);
