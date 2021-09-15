@@ -176,11 +176,11 @@ impl<'a> ModuleParser<'a> {
     }
 
     fn read_f32(&mut self) -> WResult<f32> {
-        todo!()
+        Ok(f32::from_le_bytes(self.read_4_bytes()?))
     }
 
     fn read_f64(&mut self) -> WResult<f64> {
-        todo!()
+        Ok(f64::from_le_bytes(self.read_8_bytes()?))
     }
 
     fn read_4_bytes(&mut self) -> WResult<[u8; 4]> {
@@ -190,6 +190,19 @@ impl<'a> ModuleParser<'a> {
         let b4 = self.next_byte()?;
 
         Ok([b1, b2, b3, b4])
+    }
+
+    fn read_8_bytes(&mut self) -> WResult<[u8; 8]> {
+        let b1 = self.next_byte()?;
+        let b2 = self.next_byte()?;
+        let b3 = self.next_byte()?;
+        let b4 = self.next_byte()?;
+        let b5 = self.next_byte()?;
+        let b6 = self.next_byte()?;
+        let b7 = self.next_byte()?;
+        let b8 = self.next_byte()?;
+
+        Ok([b1, b2, b3, b4, b5, b6, b7, b8])
     }
 
     fn read_range(&mut self, len: usize) -> WResult<&'a [u8]> {

@@ -7,7 +7,7 @@ use crate::{
     opcode::Instruction,
     stack::{Frame, Label, Stack, StackEntry},
     store::Store,
-    Expr, MemoryOperand, Module, Value, ValueType,
+    BlockType, Expr, ExternValue, MemoryOperand, Module, Value, ValueType,
 };
 
 pub(crate) struct Interpreter<'a> {
@@ -31,15 +31,37 @@ impl<'a> Interpreter<'a> {
         })
     }
 
-    pub fn invoke(mut self) -> WResult<()> {
-        self.stack.push_value(Value::I32(5));
+    /// Invoke function with `name` given `args`
+    pub fn invoke_export(&mut self, name: &str, args: &[Value]) -> WResult<Option<Value>> {
+        let func_addr = self.module_insts[0]
+            .exports
+            .iter()
+            .find_map(|export| {
+                if export.name != name {
+                    return None;
+                }
 
-        dbg!(self.invoke_function(0)?);
+                match export.value {
+                    ExternValue::Func(func) => Some(func),
+                    _ => None,
+                }
+            })
+            .ok_or(WasmError::UndefinedExport)?;
 
-        Ok(())
+        for arg in args {
+            self.stack.push_value(*arg);
+        }
+
+        self.invoke_function(func_addr)?;
+
+        Ok(if self.stack.is_empty() {
+            None
+        } else {
+            Some(self.stack.pop_value()?)
+        })
     }
 
-    fn invoke_function(&mut self, addr: usize) -> WResult<Value> {
+    fn invoke_function(&mut self, addr: usize) -> WResult<()> {
         let func_inst = &self.store.funcs[addr];
 
         match func_inst {
@@ -62,18 +84,27 @@ impl<'a> Interpreter<'a> {
 
                 self.stack.push(StackEntry::Activation(vec![frame.clone()]));
 
+                self.stack.push(StackEntry::Label(Label {
+                    // todo: wrong
+                    block_type: BlockType::Empty,
+                    continuation: code.expr.0.len(),
+                }));
+
                 let expr = code.expr.clone();
 
-                return self.invoke_expr(&expr, &mut frame);
+                self.invoke_expr(&expr, &mut frame)?;
             }
         }
+
+        Ok(())
     }
 
-    fn invoke_expr(&mut self, expr: &Expr, frame: &mut Frame) -> WResult<Value> {
+    fn invoke_expr(&mut self, expr: &Expr, frame: &mut Frame) -> WResult<()> {
         let mut idx = 0;
 
         while idx < expr.0.len() {
             match &expr.0[idx] {
+                Instruction::Nop => {}
                 Instruction::LocalGet(n) => self.local_get(*n, frame)?,
                 Instruction::LocalSet(n) => self.local_set(*n, frame)?,
                 Instruction::LocalTee(n) => self.local_tee(*n, frame)?,
@@ -84,6 +115,14 @@ impl<'a> Interpreter<'a> {
                 Instruction::i64Sub => self.bin_op::<i64>(&|a, b| b.wrapping_sub(a))?,
                 Instruction::i32Mul => self.bin_op::<i32>(&|a, b| b.wrapping_mul(a))?,
                 Instruction::i64Mul => self.bin_op::<i64>(&|a, b| b.wrapping_mul(a))?,
+                Instruction::f32Add => self.bin_op::<f32>(&|a, b| b + a)?,
+                Instruction::f64Add => self.bin_op::<f64>(&|a, b| b + a)?,
+                Instruction::f32Sub => self.bin_op::<f32>(&|a, b| b - a)?,
+                Instruction::f64Sub => self.bin_op::<f64>(&|a, b| b - a)?,
+                Instruction::f32Mul => self.bin_op::<f32>(&|a, b| b * a)?,
+                Instruction::f64Mul => self.bin_op::<f64>(&|a, b| b * a)?,
+                Instruction::f32Div => self.bin_op::<f32>(&|a, b| b / a)?,
+                Instruction::f64Div => self.bin_op::<f64>(&|a, b| b / a)?,
                 Instruction::i32BitwiseAnd => self.bin_op::<i32>(&|a, b| b & a)?,
                 Instruction::i64BitwiseAnd => self.bin_op::<i64>(&|a, b| b & a)?,
                 Instruction::i32BitwiseOr => self.bin_op::<i32>(&|a, b| b | a)?,
@@ -98,6 +137,8 @@ impl<'a> Interpreter<'a> {
 
                 Instruction::i32Load(mem_arg) => self.load::<i32>(*mem_arg, frame)?,
                 Instruction::i64Load(mem_arg) => self.load::<i64>(*mem_arg, frame)?,
+                Instruction::f32Load(mem_arg) => self.load::<f32>(*mem_arg, frame)?,
+                Instruction::f64Load(mem_arg) => self.load::<f64>(*mem_arg, frame)?,
 
                 Instruction::i32LtSigned => self.rel_op::<i32>(&|a, b| a < b)?,
                 Instruction::i64LtSigned => self.rel_op::<i64>(&|a, b| a < b)?,
@@ -120,12 +161,29 @@ impl<'a> Interpreter<'a> {
                 Instruction::i32Ne => self.rel_op::<i32>(&|a, b| a != b)?,
                 Instruction::i64Ne => self.rel_op::<i64>(&|a, b| a != b)?,
 
+                Instruction::f32Lt => self.rel_op::<f32>(&|a, b| a < b)?,
+                Instruction::f64Lt => self.rel_op::<f64>(&|a, b| a < b)?,
+                Instruction::f32Le => self.rel_op::<f32>(&|a, b| a <= b)?,
+                Instruction::f64Le => self.rel_op::<f64>(&|a, b| a <= b)?,
+                Instruction::f32Gt => self.rel_op::<f32>(&|a, b| a > b)?,
+                Instruction::f64Gt => self.rel_op::<f64>(&|a, b| a > b)?,
+                Instruction::f32Ge => self.rel_op::<f32>(&|a, b| a >= b)?,
+                Instruction::f64Ge => self.rel_op::<f64>(&|a, b| a >= b)?,
+                Instruction::f32Eq => self.rel_op::<f32>(&|a, b| a == b)?,
+                Instruction::f64Eq => self.rel_op::<f64>(&|a, b| a == b)?,
+                Instruction::f32Ne => self.rel_op::<f32>(&|a, b| a != b)?,
+                Instruction::f64Ne => self.rel_op::<f64>(&|a, b| a != b)?,
+
                 Instruction::i32Store(mem_arg) => self.store::<i32>(*mem_arg, frame)?,
                 Instruction::i64Store(mem_arg) => self.store::<i64>(*mem_arg, frame)?,
+                Instruction::f32Store(mem_arg) => self.store::<f32>(*mem_arg, frame)?,
+                Instruction::f64Store(mem_arg) => self.store::<f64>(*mem_arg, frame)?,
 
                 Instruction::i64Load32Signed(mem_arg) => {
                     self.load_n::<i64, i32>(*mem_arg, frame, Sign::Signed)?
                 }
+
+                Instruction::Drop => self.drop()?,
 
                 Instruction::Block(label) => self.block(*label)?,
                 Instruction::Loop(label) => self.do_loop(*label)?,
@@ -136,14 +194,19 @@ impl<'a> Interpreter<'a> {
                 }
                 Instruction::Branch(n) => idx = self.branch(*n)?,
                 Instruction::f64SignedConvertI64 => self.f64_signed_convert_i64()?,
+                Instruction::f64PromoteF32 => self.f64_promote_f32()?,
+                Instruction::f32DemoteF64 => self.f32_demote_f64()?,
+                Instruction::i32ReinterpretF32 => self.i32_reinterpret_f32()?,
                 Instruction::End => {}
+                Instruction::Call(fn_idx) => self.call(*fn_idx, frame)?,
+                Instruction::Return => break,
                 inst => todo!("{:?}", inst),
             }
 
             idx += 1;
         }
 
-        self.stack.pop_value()
+        Ok(())
     }
 
     fn trap(&self) -> ! {
@@ -189,6 +252,47 @@ impl<'a> Interpreter<'a> {
         let a = self.stack.pop_i64()?;
 
         self.stack.push_value(Value::F64(a as f64));
+
+        Ok(())
+    }
+
+    fn f64_promote_f32(&mut self) -> WResult<()> {
+        let a = self.stack.pop_f32()?;
+
+        self.stack.push_value(Value::F64(a as f64));
+
+        Ok(())
+    }
+
+    fn f32_demote_f64(&mut self) -> WResult<()> {
+        let a = self.stack.pop_f64()?;
+
+        self.stack.push_value(Value::F32(a as f32));
+
+        Ok(())
+    }
+
+    fn i32_reinterpret_f32(&mut self) -> WResult<()> {
+        let a = self.stack.pop_f32()?;
+
+        self.stack
+            .push_value(Value::I32(i32::from_le_bytes(a.to_le_bytes())));
+
+        Ok(())
+    }
+
+    fn call(&mut self, fn_idx: u32, frame: &Frame) -> WResult<()> {
+        let module = &self.module_insts[frame.module_idx as usize];
+
+        let addr = module.func_addrs[fn_idx as usize];
+
+        self.invoke_function(addr)?;
+
+        Ok(())
+    }
+
+    fn drop(&mut self) -> WResult<()> {
+        self.stack.pop_value()?;
 
         Ok(())
     }

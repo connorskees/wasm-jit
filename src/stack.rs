@@ -44,6 +44,14 @@ impl Stack {
         self.pop_value()?.assert_i64()
     }
 
+    pub fn pop_f32(&mut self) -> WResult<f32> {
+        self.pop_value()?.assert_f32()
+    }
+
+    pub fn pop_f64(&mut self) -> WResult<f64> {
+        self.pop_value()?.assert_f64()
+    }
+
     pub fn pop_n(&mut self, n: usize) -> Option<Vec<StackEntry>> {
         if self.len() < n {
             return None;

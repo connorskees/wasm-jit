@@ -87,5 +87,7 @@ macro_rules! impl_num {
 
 impl_num!(i32, i32, 4, I32, assert_i32);
 impl_num!(u32, i32, 4, I32, assert_i32);
+impl_num!(f32, f32, 4, F32, assert_f32);
 impl_num!(i64, i64, 8, I64, assert_i64);
 impl_num!(u64, i64, 8, I64, assert_i64);
+impl_num!(f64, f64, 8, F64, assert_f64);

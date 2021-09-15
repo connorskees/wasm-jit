@@ -112,8 +112,6 @@ impl<'a> Store<'a> {
             ..ModuleInst::init()
         };
 
-        module_inst.func_addrs = vec![0];
-
         module_inst.func_addrs.append(
             &mut module
                 .funcs

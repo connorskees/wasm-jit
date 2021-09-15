@@ -18,11 +18,13 @@ mod stack;
 mod store;
 
 fn main() -> WResult<()> {
-    let buffer = std::fs::read("./if.wasm").unwrap();
+    let buffer = std::fs::read("./add.wasm").unwrap();
 
-    let interpreter = Interpreter::new(&buffer)?;
+    let mut interpreter = Interpreter::new(&buffer)?;
 
-    interpreter.invoke()?;
+    let res = interpreter.invoke_export("_Z3addii", &[Value::I32(5), Value::I32(15)])?;
+
+    dbg!(res);
 
     Ok(())
 }
@@ -227,6 +229,20 @@ impl Value {
     pub fn assert_i64(self) -> WResult<i64> {
         match self {
             Self::I64(n) => Ok(n),
+            _ => Err(WasmError::InvalidType),
+        }
+    }
+
+    pub fn assert_f32(self) -> WResult<f32> {
+        match self {
+            Self::F32(n) => Ok(n),
+            _ => Err(WasmError::InvalidType),
+        }
+    }
+
+    pub fn assert_f64(self) -> WResult<f64> {
+        match self {
+            Self::F64(n) => Ok(n),
             _ => Err(WasmError::InvalidType),
         }
     }

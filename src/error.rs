@@ -20,6 +20,7 @@ pub enum WasmError {
     InvalidType,
     StackUnderflow,
     TooFewLocals,
+    UndefinedExport,
 }
 
 impl fmt::Display for WasmError {
