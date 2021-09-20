@@ -10,7 +10,7 @@ use crate::{
     BlockType, Expr, ExternValue, MemoryOperand, Module, Value, ValueType,
 };
 
-pub(crate) struct Interpreter<'a> {
+pub struct Interpreter<'a> {
     module_insts: Vec<ModuleInst<'a>>,
     store: Store<'a>,
     stack: Stack,
@@ -104,6 +104,8 @@ impl<'a> Interpreter<'a> {
 
         while idx < expr.0.len() {
             match &expr.0[idx] {
+                Instruction::If(..) | Instruction::Else => todo!("if/else"),
+
                 // ibinop
                 Instruction::i32Add => self.bin_op::<i32>(&|a, b| b.wrapping_add(a))?,
                 Instruction::i64Add => self.bin_op::<i64>(&|a, b| b.wrapping_add(a))?,
