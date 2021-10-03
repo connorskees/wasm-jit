@@ -4,12 +4,14 @@
 
 pub use error::{WResult, WasmError};
 pub use interpreter::Interpreter;
+pub use jit::WasmJit;
 use opcode::Instruction;
 use parse::ModuleParser;
 
 mod error;
 mod instance;
 mod interpreter;
+mod jit;
 mod num;
 mod opcode;
 mod parse;
