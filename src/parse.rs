@@ -556,6 +556,8 @@ impl<'a> ModuleParser<'a> {
         let arg_type = self.parse_result_type()?;
         let return_type = self.parse_result_type()?;
 
+        assert_eq!(return_type.0.len(), 1);
+
         Ok(FuncType(arg_type, return_type))
     }
 

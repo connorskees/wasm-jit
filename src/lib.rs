@@ -1,6 +1,7 @@
 #![feature(adt_const_params)]
 #![feature(generic_const_exprs)]
 #![allow(incomplete_features)]
+#![allow(dead_code)]
 
 pub use error::{WResult, WasmError};
 pub use interpreter::Interpreter;
@@ -35,7 +36,7 @@ pub struct Module<'a> {
 
 impl<'a> Module<'a> {
     pub fn new(buffer: &'a [u8]) -> WResult<Self> {
-        ModuleParser::new(&buffer).parse()
+        ModuleParser::new(buffer).parse()
     }
 }
 
@@ -234,6 +235,13 @@ impl Value {
         match self {
             Self::F64(n) => Ok(n),
             _ => Err(WasmError::InvalidType),
+        }
+    }
+
+    pub fn width(&self) -> usize {
+        match self {
+            Self::I32(..) | Self::F32(..) => 32,
+            Self::Ref(..) | Self::I64(..) | Self::F64(..) => 64,
         }
     }
 }

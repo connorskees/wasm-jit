@@ -9,5 +9,6 @@ edition = "2018"
 name = "wasm_jit"
 
 [dependencies]
-iced-x86 = { version = "1.14.0", features = ["code_asm"] }
 memmap = "0.7.0"
+arm-assembler = { path = "../arm-assembler" }
+keystone = { git = "https://github.com/tathanhdinh/keystone-rs" }
