@@ -52,21 +52,16 @@ impl<'a> Interpreter<'a> {
             self.stack.push_value(*arg);
         }
 
-        self.invoke_function(func_addr)?;
-
-        Ok(if self.stack.is_empty() {
-            None
-        } else {
-            Some(self.stack.pop_value()?)
-        })
+        self.invoke_function(func_addr)
     }
 
-    fn invoke_function(&mut self, addr: usize) -> WResult<()> {
+    fn invoke_function(&mut self, addr: usize) -> WResult<Option<Value>> {
         let func_inst = &self.store.funcs[addr];
 
         match func_inst {
             FuncInst::Host { .. } => todo!(),
             FuncInst::Local { ty, code, .. } => {
+                dbg!(ty);
                 let mut args = self
                     .stack
                     .pop_n(ty.number_of_args())
@@ -92,11 +87,17 @@ impl<'a> Interpreter<'a> {
 
                 let expr = code.expr.clone();
 
+                let has_return_value = !(ty.1).0.is_empty();
+
                 self.invoke_expr(&expr, &mut frame)?;
+
+                Ok(if has_return_value {
+                    Some(self.stack.pop_value()?)
+                } else {
+                    None
+                })
             }
         }
-
-        Ok(())
     }
 
     fn invoke_expr(&mut self, expr: &Expr, frame: &mut Frame) -> WResult<()> {

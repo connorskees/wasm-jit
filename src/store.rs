@@ -3,8 +3,8 @@ use crate::{
     instance::{
         DataInst, ElemInst, ExportInst, FuncInst, GlobalInst, MemInst, ModuleInst, TableInst,
     },
-    ExportDescription, ExternValue, FuncType, Function, GlobalType, MemoryType, Module, Ref,
-    TableType, Value,
+    ElementMode, ElementSegment, ExportDescription, ExternValue, FuncType, Function, Global,
+    MemoryType, Module, Ref, TableType,
 };
 
 use std::borrow::Cow;
@@ -81,15 +81,37 @@ impl<'a> Store<'a> {
         addr
     }
 
-    fn alloc_global(&mut self, global_type: GlobalType, val: Value) -> usize {
+    fn alloc_global(&mut self, global: Global) -> usize {
         let addr = self.next_free_global_address();
 
         let global_inst = GlobalInst {
-            ty: global_type,
-            value: val,
+            ty: global.global_type,
+            value: global.init,
         };
 
         self.globals.push(global_inst);
+
+        addr
+    }
+
+    fn alloc_elem(&mut self, elem: ElementSegment) -> usize {
+        let addr = self.next_free_global_address();
+
+        let elem_inst = ElemInst {
+            ty: elem.ty,
+            elem: match elem.mode {
+                ElementMode::Passive => todo!(),
+                ElementMode::Active { table_idx, offset } => {
+                    let _table = &self.tables[table_idx as usize];
+                    drop(offset);
+                    // todo: implement this
+                    Vec::new()
+                }
+                ElementMode::Declarative => todo!(),
+            },
+        };
+
+        self.elems.push(elem_inst);
 
         addr
     }
@@ -135,10 +157,14 @@ impl<'a> Store<'a> {
         module_inst.global_addrs = module
             .globals
             .into_iter()
-            .map(|global| self.alloc_global(global.global_type, todo!()))
+            .map(|global| self.alloc_global(global))
             .collect();
 
-        assert!(module.elems.is_empty());
+        module_inst.elem_addrs = module
+            .elems
+            .into_iter()
+            .map(|elem| self.alloc_elem(elem))
+            .collect();
 
         module_inst.data_addrs = module
             .data
@@ -154,7 +180,7 @@ impl<'a> Store<'a> {
                 name: export.name,
                 value: match export.description {
                     ExportDescription::FuncIdx(idx) => {
-                        ExternValue::Func(module_inst.func_addrs[idx as usize])
+                        ExternValue::Func(module_inst.func_addrs[idx as usize - 1])
                     }
                     ExportDescription::MemIdx(idx) => {
                         ExternValue::Mem(module_inst.mem_addrs[idx as usize])

@@ -7,6 +7,7 @@ pub use interpreter::Interpreter;
 pub use jit::WasmJit;
 use opcode::Instruction;
 use parse::ModuleParser;
+use section::CustomSection;
 
 mod error;
 mod instance;
@@ -26,11 +27,12 @@ pub struct Module<'a> {
     pub(crate) tables: Vec<TableType>,
     pub(crate) mems: Vec<MemoryType>,
     pub(crate) globals: Vec<Global>,
-    pub(crate) elems: Vec<Element>,
+    pub(crate) elems: Vec<ElementSegment>,
     pub(crate) data: Vec<DataSegment<'a>>,
     pub(crate) start: u32,
     pub(crate) imports: Vec<Import<'a>>,
     pub(crate) exports: Vec<Export<'a>>,
+    pub(crate) custom: Vec<CustomSection<'a>>,
 }
 
 impl<'a> Module<'a> {
@@ -40,14 +42,14 @@ impl<'a> Module<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Element {
+pub struct ElementSegment {
     ty: RefType,
     init: Vec<Expr>,
-    mode: ElemMode,
+    mode: ElementMode,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum ElemMode {
+pub enum ElementMode {
     Passive,
     Active { table_idx: u32, offset: Expr },
     Declarative,
@@ -212,28 +214,28 @@ impl Value {
     pub fn assert_i32(self) -> WResult<i32> {
         match self {
             Self::I32(n) => Ok(n),
-            _ => anyhow::bail!(WasmError::InvalidType),
+            _ => anyhow::bail!("expected i32 got {:?}", self),
         }
     }
 
     pub fn assert_i64(self) -> WResult<i64> {
         match self {
             Self::I64(n) => Ok(n),
-            _ => anyhow::bail!(WasmError::InvalidType),
+            _ => anyhow::bail!("expected i64 got {:?}", self),
         }
     }
 
     pub fn assert_f32(self) -> WResult<f32> {
         match self {
             Self::F32(n) => Ok(n),
-            _ => anyhow::bail!(WasmError::InvalidType),
+            _ => anyhow::bail!("expected f32 got {:?}", self),
         }
     }
 
     pub fn assert_f64(self) -> WResult<f64> {
         match self {
             Self::F64(n) => Ok(n),
-            _ => anyhow::bail!(WasmError::InvalidType),
+            _ => anyhow::bail!("expected f64 got {:?}", self),
         }
     }
 

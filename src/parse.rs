@@ -4,13 +4,14 @@ use crate::{
     error::{WResult, WasmError},
     opcode::{Instruction, OpCode},
     section::{
-        CodeSection, DataSection, ExportSection, FunctionSection, GlobalSection, ImportSection,
-        MemorySection, Section, TableSection, TypeSection,
+        CodeSection, CustomSection, DataSection, ElementSection, ExportSection, FunctionSection,
+        GlobalSection, ImportSection, MemorySection, NameSection, Section, TableSection,
+        TypeSection,
     },
     stack::Label,
-    BlockType, DataMode, DataSegment, Export, ExportDescription, Expr, FuncType, Function, Global,
-    GlobalType, Import, ImportDescription, Limit, MemoryOperand, MemoryType, Module, Mutability,
-    RefType, ResultType, TableType, ValueType,
+    BlockType, DataMode, DataSegment, ElementMode, ElementSegment, Export, ExportDescription, Expr,
+    FuncType, Function, Global, GlobalType, Import, ImportDescription, Limit, MemoryOperand,
+    MemoryType, Module, Mutability, RefType, ResultType, TableType, ValueType,
 };
 
 const MAGIC: &[u8] = b"\0asm";
@@ -39,6 +40,7 @@ impl<'a> ModuleParser<'a> {
 
         while self.buffer.len() > self.cursor {
             match self.parse_section()? {
+                Section::Custom(custom) => module.custom.push(custom),
                 Section::Export(mut export) => module.exports.append(&mut export.exports),
                 Section::Import(mut import) => module.imports.append(&mut import.imports),
                 Section::Type(mut ty) => module.types.append(&mut ty.fn_types),
@@ -48,6 +50,7 @@ impl<'a> ModuleParser<'a> {
                 Section::Global(mut global) => module.globals.append(&mut global.globals),
                 Section::Code(mut code) => module.funcs.append(&mut code.functions),
                 Section::Data(mut data) => module.data.append(&mut data.data_segments),
+                Section::Element(mut element) => module.elems.append(&mut element.element_segments),
             }
         }
 
@@ -214,7 +217,9 @@ impl<'a> ModuleParser<'a> {
 
         self.buffer
             .get(start..self.cursor)
-            .ok_or(anyhow::anyhow!(WasmError::UnexpectedEof { pos: self.cursor }))
+            .ok_or(anyhow::anyhow!(WasmError::UnexpectedEof {
+                pos: self.cursor
+            }))
     }
 
     fn parse_section(&mut self) -> WResult<Section<'a>> {
@@ -222,7 +227,7 @@ impl<'a> ModuleParser<'a> {
         let _size = self.read_u32()?;
 
         Ok(match id {
-            0 => todo!("custom"),
+            0 => Section::Custom(self.parse_custom_section()?),
             1 => Section::Type(self.parse_type_section()?),
             2 => Section::Import(self.parse_import_section()?),
             3 => Section::Function(self.parse_function_section()?),
@@ -231,7 +236,7 @@ impl<'a> ModuleParser<'a> {
             6 => Section::Global(self.parse_global_section()?),
             7 => Section::Export(self.parse_export_section()?),
             8 => todo!("start"),
-            9 => todo!("element"),
+            9 => Section::Element(self.parse_element_section()?),
             10 => Section::Code(self.parse_code_section()?),
             11 => Section::Data(self.parse_data_section()?),
             12 => todo!("data count"),
@@ -244,111 +249,120 @@ impl<'a> ModuleParser<'a> {
         })
     }
 
-    fn parse_type_section(&mut self) -> WResult<TypeSection> {
+    fn parse_custom_section(&mut self) -> WResult<CustomSection<'a>> {
+        let id = self.read_u32()?;
+        let size = self.read_u32()?;
+        let section = match id {
+            0 => CustomSection::Name(self.parse_name_section()?),
+            _ => {
+                let range = self.read_range(size as usize)?;
+                self.cursor += size as usize;
+                CustomSection::Unknown(id, range)
+            }
+        };
+
+        Ok(section)
+    }
+
+    fn parse_name_section(&mut self) -> WResult<NameSection> {
+        self.expect_byte(b'n')?;
+        self.expect_byte(b'a')?;
+        self.expect_byte(b'm')?;
+        self.expect_byte(b'e')?;
+        todo!()
+    }
+
+    fn parse_element_section(&mut self) -> WResult<ElementSection> {
+        let element_segments = self.parse_vec(Self::parse_element_segment)?;
+
+        Ok(ElementSection { element_segments })
+    }
+
+    fn parse_element_segment(&mut self) -> WResult<ElementSegment> {
+        let kind = self.read_u32()?;
+
+        Ok(match kind {
+            0 => {
+                let e = self.parse_expr()?;
+                let y = self.parse_vec(Self::read_u32)?;
+                drop(y);
+
+                ElementSegment {
+                    ty: RefType::FuncRef,
+                    // todo: what is init?
+                    init: Vec::new(),
+                    mode: ElementMode::Active {
+                        table_idx: 0,
+                        offset: e,
+                    },
+                }
+            }
+            1 => todo!(),
+            2 => todo!(),
+            3 => todo!(),
+            4 => todo!(),
+            5 => todo!(),
+            6 => todo!(),
+            7 => todo!(),
+            n => anyhow::bail!("invalid element segment id: {n}"),
+        })
+    }
+
+    fn parse_vec<T>(&mut self, parse: impl Fn(&mut Self) -> WResult<T>) -> WResult<Vec<T>> {
         let len = self.read_u32()?;
 
-        let mut fn_types = Vec::with_capacity(len as usize);
+        let mut elems = Vec::with_capacity(len as usize);
 
         for _ in 0..len {
-            fn_types.push(self.parse_func_type()?);
+            elems.push(parse(self)?);
         }
+
+        Ok(elems)
+    }
+
+    fn parse_type_section(&mut self) -> WResult<TypeSection> {
+        let fn_types = self.parse_vec(Self::parse_func_type)?;
 
         Ok(TypeSection { fn_types })
     }
 
     fn parse_import_section(&mut self) -> WResult<ImportSection<'a>> {
-        let len = self.read_u32()?;
-
-        let mut imports = Vec::with_capacity(len as usize);
-
-        for _ in 0..len {
-            imports.push(self.parse_import()?);
-        }
-
+        let imports = self.parse_vec(Self::parse_import)?;
         Ok(ImportSection { imports })
     }
 
     fn parse_function_section(&mut self) -> WResult<FunctionSection> {
-        let len = self.read_u32()?;
-
-        let mut type_idxs = Vec::with_capacity(len as usize);
-
-        for _ in 0..len {
-            type_idxs.push(self.read_u32()?);
-        }
-
+        let type_idxs = self.parse_vec(Self::read_u32)?;
         Ok(FunctionSection { type_idxs })
     }
 
     fn parse_table_section(&mut self) -> WResult<TableSection> {
-        let len = self.read_u32()?;
-
-        let mut table_types = Vec::with_capacity(len as usize);
-
-        for _ in 0..len {
-            table_types.push(self.parse_table_type()?);
-        }
-
+        let table_types = self.parse_vec(Self::parse_table_type)?;
         Ok(TableSection { table_types })
     }
 
     fn parse_memory_section(&mut self) -> WResult<MemorySection> {
-        let len = self.read_u32()?;
-
-        let mut mem_types = Vec::with_capacity(len as usize);
-
-        for _ in 0..len {
-            mem_types.push(self.parse_mem_type()?);
-        }
-
+        let mem_types = self.parse_vec(Self::parse_mem_type)?;
         Ok(MemorySection { mem_types })
     }
 
     fn parse_global_section(&mut self) -> WResult<GlobalSection> {
-        let len = self.read_u32()?;
-
-        let mut globals = Vec::with_capacity(len as usize);
-
-        for _ in 0..len {
-            globals.push(self.parse_global()?);
-        }
-
+        let globals = self.parse_vec(Self::parse_global)?;
         Ok(GlobalSection { globals })
     }
 
     fn parse_export_section(&mut self) -> WResult<ExportSection<'a>> {
-        let len = self.read_u32()?;
-
-        let mut exports = Vec::with_capacity(len as usize);
-
-        for _ in 0..len {
-            exports.push(self.parse_export()?);
-        }
-
+        let exports = self.parse_vec(Self::parse_export)?;
         Ok(ExportSection { exports })
     }
 
     fn parse_code_section(&mut self) -> WResult<CodeSection> {
-        let len = self.read_u32()?;
-
-        let mut functions = Vec::with_capacity(len as usize);
-
-        for _ in 0..len {
-            functions.push(self.parse_function()?);
-        }
-
+        let functions = self.parse_vec(Self::parse_function)?;
         Ok(CodeSection { functions })
     }
 
     fn parse_data_section(&mut self) -> WResult<DataSection<'a>> {
-        let len = self.read_u32()?;
-
-        let mut data_segments = Vec::with_capacity(len as usize);
-
-        for _ in 0..len {
-            data_segments.push(self.parse_data_segment()?);
-        }
-
+        let data_segments = self.parse_vec(Self::parse_data_segment)?;
         Ok(DataSection { data_segments })
     }
 
@@ -384,9 +398,10 @@ impl<'a> ModuleParser<'a> {
 
         for _ in 0..num_of_locals {
             let n = self.read_u32()?;
+            let local_ty = self.parse_value_type()?;
 
             for _ in 0..n {
-                locals.push(self.parse_value_type()?);
+                locals.push(local_ty);
             }
         }
 
@@ -457,7 +472,17 @@ impl<'a> ModuleParser<'a> {
 
                     Instruction::Loop(label)
                 }
-                OpCode::If => todo!(),
+                OpCode::If => {
+                    let block_type = self.parse_block_type()?;
+
+                    let start = instructions.len();
+
+                    let label = Label::incomplete_block(block_type);
+
+                    nested.push(start);
+
+                    Instruction::If(label)
+                }
                 OpCode::End => {
                     let end = instructions.len();
 
@@ -558,8 +583,6 @@ impl<'a> ModuleParser<'a> {
         let arg_type = self.parse_result_type()?;
         let return_type = self.parse_result_type()?;
 
-        assert_eq!(return_type.0.len(), 1);
-
         Ok(FuncType(arg_type, return_type))
     }
 
@@ -571,7 +594,7 @@ impl<'a> ModuleParser<'a> {
             0x7c => ValueType::F64,
             0x70 => ValueType::FuncRef,
             0x6f => ValueType::ExternRef,
-            n => anyhow::bail!(WasmError::InvalidValueType { n }),
+            n => anyhow::bail!("invalid value type: {n}"),
         })
     }
 
@@ -584,13 +607,7 @@ impl<'a> ModuleParser<'a> {
     }
 
     fn parse_result_type(&mut self) -> WResult<ResultType> {
-        let len = self.read_u32()?;
-
-        let mut types = Vec::with_capacity(len as usize);
-
-        for _ in 0..len {
-            types.push(self.parse_value_type()?);
-        }
+        let types = self.parse_vec(Self::parse_value_type)?;
 
         Ok(ResultType(types))
     }
@@ -809,12 +826,15 @@ impl<'a> ModuleParser<'a> {
         })
     }
 
-    fn parse_branch_table_immediate(&mut self) -> WResult<Vec<u32>> {
-        todo!()
+    fn parse_branch_table_immediate(&mut self) -> WResult<(Vec<u32>, u32)> {
+        let l_star = self.parse_vec(Self::read_u32)?;
+        let l_n = self.read_u32()?;
+
+        Ok((l_star, l_n))
     }
 
     fn parse_select_immediate(&mut self) -> WResult<Vec<ValueType>> {
-        todo!()
+        self.parse_vec(Self::parse_value_type)
     }
 
     fn parse_memory_operand(&mut self) -> WResult<MemoryOperand> {
@@ -833,13 +853,16 @@ impl<'a> ModuleParser<'a> {
             OpCode::End => Instruction::End,
             OpCode::Branch => Instruction::Branch(self.read_u32()?),
             OpCode::BranchIf => Instruction::BranchIf(self.read_u32()?),
-            OpCode::BranchTable => Instruction::BranchTable(self.parse_branch_table_immediate()?),
+            OpCode::BranchTable => {
+                let (a, b) = self.parse_branch_table_immediate()?;
+                Instruction::BranchTable(a, b)
+            }
             OpCode::Return => Instruction::Return,
             OpCode::Call => Instruction::Call(self.read_u32()?),
             OpCode::CallIndirect => Instruction::CallIndirect(self.read_u32()?, self.read_u32()?),
             OpCode::Drop => Instruction::Drop,
-            OpCode::Select => Instruction::Select(self.parse_select_immediate()?),
-            OpCode::SelectT => Instruction::SelectT,
+            OpCode::Select => Instruction::Select,
+            OpCode::SelectT => Instruction::SelectT(self.parse_select_immediate()?),
             OpCode::LocalGet => Instruction::LocalGet(self.read_u32()?),
             OpCode::LocalSet => Instruction::LocalSet(self.read_u32()?),
             OpCode::LocalTee => Instruction::LocalTee(self.read_u32()?),

@@ -1,4 +1,6 @@
-use crate::{DataSegment, Export, FuncType, Function, Global, Import, MemoryType, TableType};
+use crate::{
+    DataSegment, ElementSegment, Export, FuncType, Function, Global, Import, MemoryType, TableType,
+};
 
 #[derive(Debug)]
 pub enum Section<'a> {
@@ -11,6 +13,8 @@ pub enum Section<'a> {
     Export(ExportSection<'a>),
     Code(CodeSection),
     Data(DataSection<'a>),
+    Element(ElementSection),
+    Custom(CustomSection<'a>),
 }
 
 #[derive(Debug)]
@@ -57,3 +61,17 @@ pub struct CodeSection {
 pub struct DataSection<'a> {
     pub(crate) data_segments: Vec<DataSegment<'a>>,
 }
+
+#[derive(Debug)]
+pub struct ElementSection {
+    pub(crate) element_segments: Vec<ElementSegment>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CustomSection<'a> {
+    Name(NameSection),
+    Unknown(u32, &'a [u8]),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NameSection {}

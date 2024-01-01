@@ -91,7 +91,7 @@ impl StackEntry {
     pub fn assert_value(self) -> WResult<Value> {
         match self {
             Self::Value(v) => Ok(v),
-            _ => anyhow::bail!(WasmError::InvalidType),
+            _ => anyhow::bail!("expected value on stack, got {:?}", self),
         }
     }
 }

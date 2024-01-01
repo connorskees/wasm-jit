@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use crate::{
-    ExternValue, FuncType, Function, GlobalType, MemoryType, Ref, RefType, TableType, Value,
+    Expr, ExternValue, FuncType, Function, GlobalType, MemoryType, Ref, RefType, TableType,
 };
 
 #[derive(Debug)]
@@ -32,7 +32,7 @@ pub struct MemInst {
 #[derive(Debug)]
 pub struct GlobalInst {
     pub(crate) ty: GlobalType,
-    pub(crate) value: Value,
+    pub(crate) value: Expr,
 }
 
 #[derive(Debug)]

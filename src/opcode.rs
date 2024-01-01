@@ -218,13 +218,13 @@ pub enum Instruction {
     End,
     Branch(u32),
     BranchIf(u32),
-    BranchTable(Vec<u32>),
+    BranchTable(Vec<u32>, u32),
     Return,
     Call(u32),
     CallIndirect(u32, u32),
     Drop,
-    Select(Vec<ValueType>),
-    SelectT,
+    Select,
+    SelectT(Vec<ValueType>),
     LocalGet(u32),
     LocalSet(u32),
     LocalTee(u32),
@@ -417,7 +417,8 @@ impl Instruction {
         match self {
             Self::Block(label) => label.continuation = end,
             Self::Loop(..) => {}
-            Self::If(..) => todo!(),
+            // todo: handle else
+            Self::If(label) => label.continuation = end,
             inst => panic!("{:?}", inst),
         };
     }
