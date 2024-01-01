@@ -37,4 +37,4 @@ impl From<Utf8Error> for WasmError {
 
 impl std::error::Error for WasmError {}
 
-pub type WResult<T> = Result<T, WasmError>;
+pub type WResult<T> = anyhow::Result<T>;

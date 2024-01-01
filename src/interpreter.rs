@@ -512,7 +512,7 @@ impl<'a> Interpreter<'a> {
 
         let buffer = c.to_le_bytes();
 
-        mem.data[(ea as usize)..(ea + (N::BITS / 8))].copy_from_slice(&buffer);
+        mem.data[ea..(ea + (N::BITS / 8))].copy_from_slice(&buffer);
 
         Ok(())
     }
@@ -532,7 +532,7 @@ impl<'a> Interpreter<'a> {
             self.trap()
         }
 
-        let buffer = &mem.data[(ea as usize)..(ea + (n / 8))];
+        let buffer = &mem.data[ea..(ea + (n / 8))];
 
         Ok(buffer)
     }

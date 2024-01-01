@@ -1,4 +1,3 @@
-#![feature(adt_const_params)]
 #![feature(generic_const_exprs)]
 #![allow(incomplete_features)]
 #![allow(dead_code)]
@@ -213,28 +212,28 @@ impl Value {
     pub fn assert_i32(self) -> WResult<i32> {
         match self {
             Self::I32(n) => Ok(n),
-            _ => Err(WasmError::InvalidType),
+            _ => anyhow::bail!(WasmError::InvalidType),
         }
     }
 
     pub fn assert_i64(self) -> WResult<i64> {
         match self {
             Self::I64(n) => Ok(n),
-            _ => Err(WasmError::InvalidType),
+            _ => anyhow::bail!(WasmError::InvalidType),
         }
     }
 
     pub fn assert_f32(self) -> WResult<f32> {
         match self {
             Self::F32(n) => Ok(n),
-            _ => Err(WasmError::InvalidType),
+            _ => anyhow::bail!(WasmError::InvalidType),
         }
     }
 
     pub fn assert_f64(self) -> WResult<f64> {
         match self {
             Self::F64(n) => Ok(n),
-            _ => Err(WasmError::InvalidType),
+            _ => anyhow::bail!(WasmError::InvalidType),
         }
     }
 

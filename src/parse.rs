@@ -60,7 +60,7 @@ impl<'a> ModuleParser<'a> {
         if MAGIC == magic {
             Ok(())
         } else {
-            Err(WasmError::InvalidMagicHeader)
+            anyhow::bail!(WasmError::InvalidMagicHeader)
         }
     }
 
@@ -70,7 +70,7 @@ impl<'a> ModuleParser<'a> {
         if VERSION == version {
             Ok(())
         } else {
-            Err(WasmError::InvalidVersion)
+            anyhow::bail!(WasmError::InvalidVersion)
         }
     }
 
@@ -80,7 +80,7 @@ impl<'a> ModuleParser<'a> {
         if found == expected {
             Ok(())
         } else {
-            Err(WasmError::ExpectedByte { found, expected })
+            anyhow::bail!(WasmError::ExpectedByte { found, expected })
         }
     }
 
@@ -93,7 +93,9 @@ impl<'a> ModuleParser<'a> {
 
                 b
             })
-            .ok_or(WasmError::UnexpectedEof { pos: self.cursor })
+            .ok_or(anyhow::anyhow!(WasmError::UnexpectedEof {
+                pos: self.cursor
+            }))
     }
 
     fn read_u32(&mut self) -> WResult<u32> {
@@ -212,7 +214,7 @@ impl<'a> ModuleParser<'a> {
 
         self.buffer
             .get(start..self.cursor)
-            .ok_or(WasmError::UnexpectedEof { pos: self.cursor })
+            .ok_or(anyhow::anyhow!(WasmError::UnexpectedEof { pos: self.cursor }))
     }
 
     fn parse_section(&mut self) -> WResult<Section<'a>> {
@@ -234,7 +236,7 @@ impl<'a> ModuleParser<'a> {
             11 => Section::Data(self.parse_data_section()?),
             12 => todo!("data count"),
             id => {
-                return Err(WasmError::UnrecognizedSection {
+                anyhow::bail!(WasmError::UnrecognizedSection {
                     id,
                     pos: self.cursor,
                 })
@@ -361,7 +363,7 @@ impl<'a> ModuleParser<'a> {
                 mem_idx: self.read_u32()?,
                 offset: self.parse_expr()?,
             },
-            n => return Err(WasmError::InvalidDataMode { n }),
+            n => anyhow::bail!(WasmError::InvalidDataMode { n }),
         };
 
         let init_len = self.read_u32()?;
@@ -414,7 +416,7 @@ impl<'a> ModuleParser<'a> {
             0x01 => ExportDescription::TableIdx(value),
             0x02 => ExportDescription::MemIdx(value),
             0x03 => ExportDescription::GlobalIdx(value),
-            _ => return Err(WasmError::InvalidExportDescription { n: kind }),
+            _ => anyhow::bail!(WasmError::InvalidExportDescription { n: kind }),
         })
     }
 
@@ -483,7 +485,7 @@ impl<'a> ModuleParser<'a> {
             0x01 => ImportDescription::Table(self.parse_table_type()?),
             0x02 => ImportDescription::Mem(self.parse_mem_type()?),
             0x03 => ImportDescription::Global(self.parse_global_type()?),
-            n => return Err(WasmError::InvalidImportDescription { n }),
+            n => anyhow::bail!(WasmError::InvalidImportDescription { n }),
         })
     }
 
@@ -519,7 +521,7 @@ impl<'a> ModuleParser<'a> {
         let mutability = match self.next_byte()? {
             0x00 => Mutability::Const,
             0x01 => Mutability::Var,
-            n => return Err(WasmError::InvalidGlobalMutability { n }),
+            n => anyhow::bail!(WasmError::InvalidGlobalMutability { n }),
         };
 
         Ok(GlobalType {
@@ -536,7 +538,7 @@ impl<'a> ModuleParser<'a> {
         let max = match limit_kind {
             0x00 => None,
             0x01 => Some(self.read_u32()?),
-            n => return Err(WasmError::InvalidLimitFlag { n }),
+            n => anyhow::bail!(WasmError::InvalidLimitFlag { n }),
         };
 
         Ok(Limit { min, max })
@@ -569,7 +571,7 @@ impl<'a> ModuleParser<'a> {
             0x7c => ValueType::F64,
             0x70 => ValueType::FuncRef,
             0x6f => ValueType::ExternRef,
-            n => return Err(WasmError::InvalidValueType { n }),
+            n => anyhow::bail!(WasmError::InvalidValueType { n }),
         })
     }
 
@@ -577,7 +579,7 @@ impl<'a> ModuleParser<'a> {
         Ok(match self.next_byte()? {
             0x70 => RefType::FuncRef,
             0x6f => RefType::ExternRef,
-            n => return Err(WasmError::InvalidRefType { n }),
+            n => anyhow::bail!(WasmError::InvalidRefType { n }),
         })
     }
 
@@ -798,12 +800,12 @@ impl<'a> ModuleParser<'a> {
                 0x10 => OpCode::TableSize,
                 0x11 => OpCode::TableFill,
                 op => {
-                    return Err(WasmError::InvalidOpCode {
+                    anyhow::bail!(WasmError::InvalidOpCode {
                         op: op as u16 + 0xfc_00,
                     })
                 }
             },
-            op => return Err(WasmError::InvalidOpCode { op: op as u16 }),
+            op => anyhow::bail!(WasmError::InvalidOpCode { op: op as u16 }),
         })
     }
 

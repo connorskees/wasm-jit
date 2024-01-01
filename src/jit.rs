@@ -1,16 +1,15 @@
 use std::mem;
 
+use iced_x86::code_asm::*;
+
 use crate::{
     error::{WResult, WasmError},
     instance::{FuncInst, ModuleInst},
     opcode::Instruction,
     stack::Stack,
     store::Store,
-    Expr, ExternValue, Module, Ref, Value, ValueType,
+    Expr, ExternValue, Module, Value, ValueType,
 };
-
-use arm_assembler::Register as ArmRegister;
-use keystone::{Arch, Keystone};
 
 pub struct WasmJit<'a> {
     module_insts: Vec<ModuleInst<'a>>,
@@ -19,9 +18,7 @@ pub struct WasmJit<'a> {
 }
 
 struct Assembler {
-    assembly: String,
-    inst_count: usize,
-    engine: Keystone,
+    engine: CodeAssembler,
 }
 
 enum ArgInst {
@@ -29,85 +26,53 @@ enum ArgInst {
     Push,
 }
 
-// calling convention:
-//  args: x0-x7 passed in
-//   rest: ldr x0, [sp, #0]
-//  ret: x0
 impl Assembler {
-    pub fn new() -> Self {
-        let mut assembler = Self {
-            assembly: String::new(),
-            inst_count: 0,
-            engine: Keystone::from(Arch::Arm64, keystone::Mode::LittleEndian).unwrap(),
-        };
+    pub fn new() -> WResult<Self> {
+        use iced_x86::code_asm::*;
 
-        assembler.add_instruction("mov x27, sp");
-        assembler.add_instruction("mov x28, sp");
+        let engine = CodeAssembler::new(64).unwrap();
+        let mut assembler = Self { engine };
 
-        assembler
+        // function prologue
+        assembler.engine.push(rbp)?;
+        assembler.engine.mov(rbp, rsp)?;
+        assembler.engine.sub(rsp, 1000)?;
+
+        Ok(assembler)
     }
 
-    pub fn with_args(args: &[Value]) -> Self {
-        let mut assembler = Self::new();
+    pub fn with_args(args: &[Value]) -> WResult<Self> {
+        let mut assembler = Self::new()?;
+        let order_64 = [rdi, rsi, rdx, rcx, r8, r9];
+        let order_32 = [edi, esi, edx, ecx, r8d, r9d];
 
         for (idx, &val) in args.iter().enumerate() {
-            let base = assembler.pass_arg(idx);
-
-            let arg = match val {
-                Value::I32(v) => format!("#{v}"),
-                Value::I64(v) => format!("#{v}"),
-                Value::F32(..) | Value::F64(..) => todo!(),
-                Value::Ref(Ref::Null) => "#0".to_string(),
-                Value::Ref(Ref::Extern(v) | Ref::FuncAddr(v)) => format!("#{v}"),
-            };
-
-            match base {
-                ArgInst::Mov(reg) => assembler.add_instruction(&format!("mov x{reg}, {arg}")),
-                ArgInst::Push => {
-                    assembler.add_instruction(&format!("mov x8, {arg}"));
-                    assembler.push(ArmRegister::X8);
+            match val {
+                Value::I64(v) if idx < 6 => assembler.engine.mov(order_64[idx], v)?,
+                Value::I32(v) if idx < 6 => assembler.engine.mov(order_32[idx], v)?,
+                Value::I64(v) => {
+                    assembler.engine.mov(r10, v)?;
+                    assembler.engine.push(r10)?;
                 }
+                Value::I32(v) => assembler.engine.push(v)?,
+                _ => todo!(),
             }
         }
 
-        assembler
+        Ok(assembler)
     }
 
-    fn pass_arg(&mut self, idx: usize) -> ArgInst {
-        match idx {
-            0..=7 => ArgInst::Mov(idx as u8),
-            _ => ArgInst::Push,
-        }
-    }
+    pub fn finish<T>(mut self) -> WResult<extern "C" fn() -> T> {
+        // function epilogue
+        self.engine.mov(rsp, rbp)?;
+        self.engine.pop(rbp)?;
+        self.engine.ret()?;
 
-    pub fn push(&mut self, register: ArmRegister) {
-        self.add_instruction("sub sp, x28, #8");
-        self.add_instruction(&format!("str {register}, [x28, #-8]!"));
-    }
+        let bytes = self.engine.assemble(0x0).unwrap();
 
-    pub fn pop(&mut self, register: ArmRegister) {
-        self.add_instruction(&format!("ldr {register}, [x28], #8"));
-    }
+        let mut mmap = memmap::MmapMut::map_anon(bytes.len()).unwrap();
 
-    pub fn add_instruction(&mut self, inst: &str) {
-        self.assembly.push('\n');
-        self.assembly.push_str(inst);
-        self.inst_count += 1;
-    }
-
-    pub fn finish<T>(mut self) -> extern "C" fn() -> T {
-        self.add_instruction("mov sp, x27");
-        self.add_instruction("ret");
-
-        let mut mmap = memmap::MmapMut::map_anon(self.inst_count * 4).unwrap();
-
-        let res = self
-            .engine
-            .asm(&self.assembly, mmap.as_ptr() as u64)
-            .unwrap();
-
-        let bytes = res.encoding();
-        (&mut mmap[..bytes.len() as usize]).copy_from_slice(bytes);
+        (&mut mmap[..bytes.len() as usize]).copy_from_slice(&bytes);
         let mmap = mmap.make_exec().unwrap();
 
         let ptr = mmap.as_ptr() as *const ();
@@ -115,9 +80,7 @@ impl Assembler {
 
         mem::forget(mmap);
 
-        self.assembly.clear();
-
-        code
+        Ok(code)
     }
 }
 
@@ -141,50 +104,13 @@ impl<'a> WasmJit<'a> {
     /// A function to test ad hoc assembly
     #[allow(warnings)]
     fn test() {
-        let mut assembler = Assembler::with_args(&[
-            Value::I32(0),
-            Value::I32(1),
-            Value::I32(2),
-            Value::I32(3),
-            Value::I32(4),
-            Value::I32(5),
-            Value::I32(6),
-            Value::I32(7),
-            Value::I32(8),
-            Value::I32(9),
-            Value::I32(10),
-            Value::I32(11),
-            Value::I32(12),
-            Value::I32(13),
-        ]);
+        let mut assembler = Assembler::with_args(&[Value::I32(1), Value::I32(2)]).unwrap();
 
-        // assembler.add_instruction("mov x28, sp");
-        // assembler.add_instruction("sub sp, x28, #16");
-        // assembler.add_instruction("str x2, [x28, #-8]!");
-        // assembler.add_instruction("mov x0, x1");
+        assembler.engine.mov(rax, 5_i64);
 
-        // assembler.add_instruction("add sp, sp, #16");
-
-        // assembler.add_instruction("mov x0, x5");
-        // assembler.add_instruction("ldr x0, [sp, #4]");
-        // assembler.add_instruction("str #4, [sp, #0]");
-
-        // dbg!(&assembler.assembly);
-
-        // assembler.pop(0);
-        // assembler.pop(0);
-        // assembler.pop(0);
-
-        let func = assembler.finish::<i32>();
+        let func = assembler.finish::<i32>().unwrap();
 
         dbg!(func());
-
-        // mov x1, #0
-        // bytes.extend_from_slice(&0b11010010100000000000000000000001_u32.to_le_bytes());
-        // mov x0, #0
-        // bytes.extend_from_slice(&0b11010010100000000000000000000000_u32.to_le_bytes());
-        // ret
-        // bytes.extend_from_slice(&0b11010110010111110000001111000000_u32.to_le_bytes());
     }
 
     /// Invoke function with `name` given `args`
@@ -233,47 +159,56 @@ impl<'a> WasmJit<'a> {
     }
 
     fn jit_expr(&mut self, expr: Expr, args: &[Value], return_type: ValueType) -> WResult<()> {
-        let mut assembler = Assembler::with_args(args);
+        let mut assembler = Assembler::with_args(args)?;
 
         for inst in expr.0 {
             match inst {
                 Instruction::LocalGet(n) => {
-                    assembler.push(ArmRegister::from_int(n));
+                    assembler.engine.push(match n {
+                        0 => rdi,
+                        1 => rsi,
+                        2 => rdx,
+                        _ => todo!("{n}"),
+                    })?;
                 }
                 Instruction::i32Add => {
-                    assembler.pop(ArmRegister::X9);
-                    assembler.pop(ArmRegister::X10);
-                    assembler.add_instruction("add x11, x10, x9");
-                    assembler.push(ArmRegister::X11);
+                    assembler.engine.pop(r9)?;
+                    assembler.engine.pop(r10)?;
+                    assembler.engine.xor(r11, r11)?;
+                    assembler.engine.add(r11, r9)?;
+                    assembler.engine.add(r11, r10)?;
+                    assembler.engine.push(r11)?;
                 }
-                Instruction::End => assembler.pop(ArmRegister::X0),
+                Instruction::End => assembler.engine.pop(rax)?,
                 i => todo!("{:?}", i),
             }
         }
 
-        match return_type {
+        let ret_val = match return_type {
             ValueType::I32 => {
-                let func = assembler.finish::<i32>();
+                let func = assembler.finish::<i32>()?;
 
-                self.stack.push_value(Value::I32(func()));
+                Value::I32(func())
             }
             ValueType::I64 => {
-                let func = assembler.finish::<i64>();
+                let func = assembler.finish::<i64>()?;
 
-                self.stack.push_value(Value::I64(func()));
+                Value::I64(func())
             }
             ValueType::F32 => {
-                let func = assembler.finish::<f32>();
+                let func = assembler.finish::<f32>()?;
 
-                self.stack.push_value(Value::F32(func()));
+                Value::F32(func())
             }
             ValueType::F64 => {
-                let func = assembler.finish::<f64>();
+                let func = assembler.finish::<f64>()?;
 
-                self.stack.push_value(Value::F64(func()));
+                Value::F64(func())
             }
             _ => todo!(),
-        }
+        };
+
+        self.stack.push_value(ret_val);
 
         Ok(())
     }
