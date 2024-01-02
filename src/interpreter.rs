@@ -166,18 +166,10 @@ impl<'a> Interpreter<'a> {
                 Instruction::i32SignedBitwiseShiftRight => self.bin_op::<i32>(&|a, b| b >> a)?,
                 Instruction::i64SignedBitwiseShiftRight => self.bin_op::<i64>(&|a, b| b >> a)?,
                 Instruction::i32UnsignedBitwiseShiftRight => self.bin_op::<i32>(&|a, b| {
-                    i32::from_ne_bytes(
-                        (u32::from_ne_bytes(b.to_ne_bytes())
-                            >> u32::from_ne_bytes(a.to_ne_bytes()))
-                        .to_ne_bytes(),
-                    )
+                    i32::reinterpret(u32::reinterpret(b) >> u32::reinterpret(a))
                 })?,
                 Instruction::i64UnsignedBitwiseShiftRight => self.bin_op::<i64>(&|a, b| {
-                    i64::from_ne_bytes(
-                        (u64::from_ne_bytes(b.to_ne_bytes())
-                            >> u64::from_ne_bytes(a.to_ne_bytes()))
-                        .to_ne_bytes(),
-                    )
+                    i64::reinterpret(u64::reinterpret(b) >> u64::reinterpret(a))
                 })?,
                 Instruction::i32RotateLeft => todo!(),
                 Instruction::i64RotateLeft => todo!(),
@@ -581,20 +573,20 @@ impl<'a> Interpreter<'a> {
 
         let ea = (i + mem_arg.offset as i32) as usize;
 
-        let n = N::BITS;
-
-        if ea + n / 8 > mem.data.len() {
+        if ea + N::BYTES > mem.data.len() {
             self.trap("oob write");
         }
 
         let buffer = c.to_le_bytes();
 
-        mem.data[ea..(ea + (N::BITS / 8))].copy_from_slice(&buffer);
+        mem.data[ea..(ea + N::BYTES)].copy_from_slice(&buffer);
 
         Ok(())
     }
 
     fn load_buffer(&mut self, mem_arg: MemoryOperand, frame: &Frame, n: usize) -> WResult<&[u8]> {
+        assert_eq!(mem_arg.offset % 2_u32.pow(mem_arg.align), 0);
+
         let mem = {
             let module = &self.module_insts[frame.module_idx as usize];
             let addr = module.mem_addrs[0];
@@ -605,11 +597,11 @@ impl<'a> Interpreter<'a> {
 
         let ea = i as usize + mem_arg.offset as usize;
 
-        if ea + n / 8 > mem.data.len() {
+        if ea + n > mem.data.len() {
             self.trap("oob read")
         }
 
-        let buffer = &mem.data[ea..(ea + (n / 8))];
+        let buffer = &mem.data[ea..(ea + n)];
 
         Ok(buffer)
     }
@@ -625,7 +617,7 @@ impl<'a> Interpreter<'a> {
         [(); N2::BYTES]: Sized,
         [(); -((N::BYTES < N2::BYTES) as isize) as usize + 1]: Sized,
     {
-        let buffer = self.load_buffer(mem_arg, frame, N2::BITS)?;
+        let buffer = self.load_buffer(mem_arg, frame, N2::BYTES)?;
         let bytes: [u8; N2::BYTES] = buffer.try_into().unwrap();
 
         let n = N2::from_le_bytes(bytes);
@@ -645,7 +637,7 @@ impl<'a> Interpreter<'a> {
     where
         [(); N::BYTES]: Sized,
     {
-        let buffer = self.load_buffer(mem_arg, frame, N::BITS)?;
+        let buffer = self.load_buffer(mem_arg, frame, N::BYTES)?;
         let bytes: [u8; N::BYTES] = buffer.try_into().unwrap();
 
         self.stack.push_value(N::from_le_bytes(bytes).as_value());

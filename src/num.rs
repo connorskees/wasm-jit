@@ -26,6 +26,24 @@ pub trait Num: Copy + std::fmt::Debug {
 
     fn signed(self) -> Self::Signed;
 
+    /// Reinterprets `N` as `self` where `N` is the same size as `self`
+    fn reinterpret<N: Num>(n: N) -> Self
+    where
+        // checking Self::BYTES == N::BYTES
+        [(); Self::BYTES - N::BYTES]: Sized,
+        [(); N::BYTES - Self::BYTES]: Sized,
+    {
+        debug_assert_eq!(Self::BYTES, N::BYTES);
+
+        // todo: use faster algorithm here, we just want to reinterpret bytes
+        // but it's hard to tell the compiler that
+        let mut buffer = [0; Self::BYTES];
+
+        buffer[..].copy_from_slice(&n.to_le_bytes());
+
+        Self::from_le_bytes(buffer)
+    }
+
     /// Reinterprets `self` as `N`
     fn extend_unsigned<N: Num>(&self) -> N
     where

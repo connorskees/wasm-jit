@@ -2,7 +2,7 @@
 #![allow(incomplete_features)]
 #![allow(dead_code)]
 
-use core::fmt;
+use std::fmt;
 
 pub use error::{WResult, WasmError};
 pub use interpreter::Interpreter;

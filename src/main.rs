@@ -21,7 +21,7 @@ fn main() -> WResult<()> {
         ],
     )?;
 
-    dbg!(interpreter.invoke_export("twoSum", &[Value::I32(0), Value::I32(4), Value::I32(11)]))?;
+    dbg!(interpreter.invoke_export("contains", &[Value::I32(0), Value::I32(4), Value::I32(9)]))?;
     // dbg!(interpreter.invoke_export("main", &[Value::I32(5)]))?;
 
     // let res_jit = jit.invoke_export("_Z3addii", &[Value::I32(45), Value::I32(6)])?;
