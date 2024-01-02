@@ -7,28 +7,58 @@ use crate::{
     opcode::Instruction,
     stack::{Frame, Label, Stack, StackEntry},
     store::Store,
-    BlockType, Expr, ExternValue, MemoryOperand, Module, Value, ValueType,
+    BlockType, Expr, ExternValue, ImportValue, MemoryOperand, Module, Value, ValueType,
 };
 
 pub struct Interpreter<'a> {
     module_insts: Vec<ModuleInst<'a>>,
     store: Store<'a>,
     stack: Stack,
+    globals: Vec<Value>,
 }
 
 impl<'a> Interpreter<'a> {
-    pub fn new(buffer: &'a [u8]) -> WResult<Self> {
+    pub fn new(buffer: &'a [u8], imports: &[(&str, &str, ImportValue)]) -> WResult<Self> {
         let module = Module::new(buffer)?;
         let mut store = Store::default();
         let stack = Stack::new();
 
-        let module_inst = store.alloc_module(module)?;
+        let module_inst = store.alloc_module(module, imports)?;
 
-        Ok(Self {
+        let globals = Vec::with_capacity(store.globals.len());
+
+        let mut i = Self {
             module_insts: vec![module_inst],
             store,
             stack,
-        })
+            globals,
+        };
+
+        i.initialize_globals()?;
+
+        Ok(i)
+    }
+
+    fn initialize_globals(&mut self) -> WResult<()> {
+        let globals: Vec<_> = self.store.globals.iter().map(|g| g.value.clone()).collect();
+
+        for g in globals {
+            self.invoke_expr(&g, &mut Frame::default())?;
+            let val = self.stack.pop_value()?;
+            self.globals.push(val)
+        }
+
+        Ok(())
+    }
+
+    pub fn invoke(&mut self, args: &[Value]) -> WResult<Option<Value>> {
+        let func_addr = 0;
+
+        for arg in args {
+            self.stack.push_value(*arg);
+        }
+
+        self.invoke_function(func_addr)
     }
 
     /// Invoke function with `name` given `args`
@@ -59,9 +89,11 @@ impl<'a> Interpreter<'a> {
         let func_inst = &self.store.funcs[addr];
 
         match func_inst {
-            FuncInst::Host { .. } => todo!(),
+            FuncInst::Host { .. } => {
+                dbg!("host function");
+                Ok(Some(Value::F32(0.0)))
+            }
             FuncInst::Local { ty, code, .. } => {
-                dbg!(ty);
                 let mut args = self
                     .stack
                     .pop_n(ty.number_of_args())
@@ -105,7 +137,8 @@ impl<'a> Interpreter<'a> {
 
         while idx < expr.0.len() {
             match &expr.0[idx] {
-                Instruction::If(..) | Instruction::Else => todo!("if/else"),
+                Instruction::If(label) => idx = self.if_op(idx, *label)?,
+                Instruction::Else => todo!("if/else"),
 
                 // ibinop
                 Instruction::i32Add => self.bin_op::<i32>(&|a, b| b.wrapping_add(a))?,
@@ -128,12 +161,24 @@ impl<'a> Interpreter<'a> {
                 Instruction::i64BitwiseOr => self.bin_op::<i64>(&|a, b| b | a)?,
                 Instruction::i32BitwiseXor => self.bin_op::<i32>(&|a, b| b ^ a)?,
                 Instruction::i64BitwiseXor => self.bin_op::<i64>(&|a, b| b ^ a)?,
-                Instruction::i32BitwiseShiftLeft => todo!(),
-                Instruction::i64BitwiseShiftLeft => todo!(),
-                Instruction::i32SignedBitwiseShiftRight => todo!(),
-                Instruction::i64SignedBitwiseShiftRight => todo!(),
-                Instruction::i32UnsignedBitwiseShiftRight => todo!(),
-                Instruction::i64UnsignedBitwiseShiftRight => todo!(),
+                Instruction::i32BitwiseShiftLeft => self.bin_op::<i32>(&|a, b| b << a)?,
+                Instruction::i64BitwiseShiftLeft => self.bin_op::<i64>(&|a, b| b << a)?,
+                Instruction::i32SignedBitwiseShiftRight => self.bin_op::<i32>(&|a, b| b >> a)?,
+                Instruction::i64SignedBitwiseShiftRight => self.bin_op::<i64>(&|a, b| b >> a)?,
+                Instruction::i32UnsignedBitwiseShiftRight => self.bin_op::<i32>(&|a, b| {
+                    i32::from_ne_bytes(
+                        (u32::from_ne_bytes(b.to_ne_bytes())
+                            >> u32::from_ne_bytes(a.to_ne_bytes()))
+                        .to_ne_bytes(),
+                    )
+                })?,
+                Instruction::i64UnsignedBitwiseShiftRight => self.bin_op::<i64>(&|a, b| {
+                    i64::from_ne_bytes(
+                        (u64::from_ne_bytes(b.to_ne_bytes())
+                            >> u64::from_ne_bytes(a.to_ne_bytes()))
+                        .to_ne_bytes(),
+                    )
+                })?,
                 Instruction::i32RotateLeft => todo!(),
                 Instruction::i64RotateLeft => todo!(),
                 Instruction::i32RotateRight => todo!(),
@@ -289,6 +334,9 @@ impl<'a> Interpreter<'a> {
                 Instruction::LocalSet(n) => self.local_set(*n, frame)?,
                 Instruction::LocalTee(n) => self.local_tee(*n, frame)?,
 
+                Instruction::GlobalGet(n) => self.global_get(*n, frame)?,
+                Instruction::GlobalSet(n) => self.global_set(*n, frame)?,
+
                 Instruction::Drop => self.drop()?,
 
                 Instruction::Block(label) => self.block(*label)?,
@@ -311,8 +359,8 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
-    fn trap(&self) -> ! {
-        todo!()
+    fn trap(&self, message: &str) -> ! {
+        todo!("{message}")
     }
 }
 
@@ -346,6 +394,28 @@ impl<'a> Interpreter<'a> {
         self.stack.push_value(val);
 
         self.local_set(n, frame)?;
+
+        Ok(())
+    }
+
+    fn global_get(&mut self, n: u32, frame: &Frame) -> WResult<()> {
+        let module = &self.module_insts[frame.module_idx as usize];
+        let global_addr = module.global_addrs[n as usize];
+
+        let val = self.globals[global_addr];
+
+        self.stack.push_value(val);
+
+        Ok(())
+    }
+
+    fn global_set(&mut self, n: u32, frame: &mut Frame) -> WResult<()> {
+        let val = self.stack.pop_value()?;
+
+        let module = &self.module_insts[frame.module_idx as usize];
+        let global_addr = module.global_addrs[n as usize];
+
+        self.globals[global_addr] = val;
 
         Ok(())
     }
@@ -448,6 +518,12 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
+    fn if_op(&mut self, curr: usize, label: Label) -> WResult<usize> {
+        let cond = self.stack.pop_i32()?;
+
+        Ok(if cond == 0 { label.continuation } else { curr })
+    }
+
     fn bin_op<N: Num>(&mut self, op: &dyn Fn(N, N) -> N) -> WResult<()> {
         let b = N::from_value(self.stack.pop_value()?)?;
         let a = N::from_value(self.stack.pop_value()?)?;
@@ -508,7 +584,7 @@ impl<'a> Interpreter<'a> {
         let n = N::BITS;
 
         if ea + n / 8 > mem.data.len() {
-            self.trap();
+            self.trap("oob write");
         }
 
         let buffer = c.to_le_bytes();
@@ -530,7 +606,7 @@ impl<'a> Interpreter<'a> {
         let ea = i as usize + mem_arg.offset as usize;
 
         if ea + n / 8 > mem.data.len() {
-            self.trap()
+            self.trap("oob read")
         }
 
         let buffer = &mem.data[ea..(ea + (n / 8))];

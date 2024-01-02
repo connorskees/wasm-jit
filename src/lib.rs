@@ -2,6 +2,8 @@
 #![allow(incomplete_features)]
 #![allow(dead_code)]
 
+use core::fmt;
+
 pub use error::{WResult, WasmError};
 pub use interpreter::Interpreter;
 pub use jit::WasmJit;
@@ -97,11 +99,30 @@ pub struct Import<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ImportDescription {
+pub enum ImportDescription {
     Func(u32),
     Table(TableType),
     Mem(MemoryType),
     Global(GlobalType),
+}
+
+pub enum ImportValue {
+    Func(Box<dyn Fn()>),
+    // todo: what does a table look like
+    Table(()),
+    Mem(Vec<u8>),
+    Global(Value),
+}
+
+impl fmt::Debug for ImportValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ImportValue::Func(_) => f.debug_tuple("ImportValue::Func").finish(),
+            ImportValue::Table(v) => f.debug_tuple("ImportValue::Table").field(v).finish(),
+            ImportValue::Mem(v) => f.debug_tuple("ImportValue::Mem").field(v).finish(),
+            ImportValue::Global(v) => f.debug_tuple("ImportValue::Global").field(v).finish(),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -126,8 +147,8 @@ pub struct GlobalType {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limit {
-    min: u32,
-    max: Option<u32>,
+    pub min: u32,
+    pub max: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

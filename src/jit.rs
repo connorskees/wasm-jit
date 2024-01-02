@@ -90,7 +90,7 @@ impl<'a> WasmJit<'a> {
         let mut store = Store::default();
         let stack = Stack::new();
 
-        let module_inst = store.alloc_module(module)?;
+        let module_inst = store.alloc_module(module, &[])?;
 
         Self::test();
 
@@ -110,7 +110,7 @@ impl<'a> WasmJit<'a> {
 
         let func = assembler.finish::<i32>().unwrap();
 
-        dbg!(func());
+        // dbg!(func());
     }
 
     /// Invoke function with `name` given `args`

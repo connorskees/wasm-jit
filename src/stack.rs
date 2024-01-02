@@ -96,7 +96,7 @@ impl StackEntry {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Frame {
     pub(crate) locals: Vec<Value>,
     pub(crate) module_idx: u32,

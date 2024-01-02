@@ -3,7 +3,7 @@ use wasm_jit::Value;
 #[test]
 fn add() {
     let buffer = std::fs::read("./files/add.wasm").unwrap();
-    let mut interpreter = wasm_jit::Interpreter::new(&buffer).unwrap();
+    let mut interpreter = wasm_jit::Interpreter::new(&buffer, &[]).unwrap();
 
     let result = interpreter
         .invoke_export("_Z3addii", &[Value::I32(5), Value::I32(7)])
@@ -23,7 +23,7 @@ fn add() {
 #[test]
 fn factorial() {
     let buffer = std::fs::read("./files/factorial.wasm").unwrap();
-    let mut interpreter = wasm_jit::Interpreter::new(&buffer).unwrap();
+    let mut interpreter = wasm_jit::Interpreter::new(&buffer, &[]).unwrap();
 
     let result = interpreter
         .invoke_export("fact", &[Value::I32(5)])
@@ -43,7 +43,7 @@ fn factorial() {
 #[test]
 fn fibonacci() {
     let buffer = std::fs::read("./files/fibonacci.wasm").unwrap();
-    let mut interpreter = wasm_jit::Interpreter::new(&buffer).unwrap();
+    let mut interpreter = wasm_jit::Interpreter::new(&buffer, &[]).unwrap();
 
     let result = interpreter
         .invoke_export("fibonacci", &[Value::I32(10)])

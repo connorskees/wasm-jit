@@ -13,6 +13,7 @@ pub enum Section<'a> {
     Export(ExportSection<'a>),
     Code(CodeSection),
     Data(DataSection<'a>),
+    DataCount(u32),
     Element(ElementSection),
     Custom(CustomSection<'a>),
 }

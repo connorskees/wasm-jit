@@ -50,6 +50,7 @@ impl<'a> ModuleParser<'a> {
                 Section::Global(mut global) => module.globals.append(&mut global.globals),
                 Section::Code(mut code) => module.funcs.append(&mut code.functions),
                 Section::Data(mut data) => module.data.append(&mut data.data_segments),
+                Section::DataCount(..) => {}
                 Section::Element(mut element) => module.elems.append(&mut element.element_segments),
             }
         }
@@ -224,10 +225,10 @@ impl<'a> ModuleParser<'a> {
 
     fn parse_section(&mut self) -> WResult<Section<'a>> {
         let id = self.next_byte()?;
-        let _size = self.read_u32()?;
+        let size = self.read_u32()?;
 
         Ok(match id {
-            0 => Section::Custom(self.parse_custom_section()?),
+            0 => Section::Custom(self.parse_custom_section(size)?),
             1 => Section::Type(self.parse_type_section()?),
             2 => Section::Import(self.parse_import_section()?),
             3 => Section::Function(self.parse_function_section()?),
@@ -239,7 +240,7 @@ impl<'a> ModuleParser<'a> {
             9 => Section::Element(self.parse_element_section()?),
             10 => Section::Code(self.parse_code_section()?),
             11 => Section::Data(self.parse_data_section()?),
-            12 => todo!("data count"),
+            12 => Section::DataCount(self.parse_data_count_section()?),
             id => {
                 anyhow::bail!(WasmError::UnrecognizedSection {
                     id,
@@ -249,14 +250,21 @@ impl<'a> ModuleParser<'a> {
         })
     }
 
-    fn parse_custom_section(&mut self) -> WResult<CustomSection<'a>> {
+    fn parse_data_count_section(&mut self) -> WResult<u32> {
+        self.read_u32()
+    }
+
+    fn parse_custom_section(&mut self, size: u32) -> WResult<CustomSection<'a>> {
+        let start = self.cursor;
         let id = self.read_u32()?;
-        let size = self.read_u32()?;
+        // u32s are variable-length encoded, so we must do math to determine
+        // how many bytes we read
+        let num_id_bytes = self.cursor - start;
+
         let section = match id {
             0 => CustomSection::Name(self.parse_name_section()?),
             _ => {
-                let range = self.read_range(size as usize)?;
-                self.cursor += size as usize;
+                let range = self.read_range(size as usize - num_id_bytes)?;
                 CustomSection::Unknown(id, range)
             }
         };

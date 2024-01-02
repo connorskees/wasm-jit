@@ -3,8 +3,9 @@ use crate::{
     instance::{
         DataInst, ElemInst, ExportInst, FuncInst, GlobalInst, MemInst, ModuleInst, TableInst,
     },
-    ElementMode, ElementSegment, ExportDescription, ExternValue, FuncType, Function, Global,
-    MemoryType, Module, Ref, TableType,
+    opcode::Instruction,
+    ElementMode, ElementSegment, ExportDescription, Expr, ExternValue, Function, Global,
+    ImportDescription, ImportValue, MemoryType, Module, Ref, TableType,
 };
 
 use std::borrow::Cow;
@@ -14,7 +15,7 @@ pub struct Store<'a> {
     pub funcs: Vec<FuncInst>,
     tables: Vec<TableInst>,
     pub mems: Vec<MemInst>,
-    globals: Vec<GlobalInst>,
+    pub globals: Vec<GlobalInst>,
     elems: Vec<ElemInst>,
     data: Vec<DataInst<'a>>,
 }
@@ -42,8 +43,15 @@ impl<'a> Store<'a> {
         Ok(addr)
     }
 
-    fn alloc_host_fn(&mut self, func_type: FuncType) -> WResult<usize> {
+    fn alloc_host_fn(
+        &mut self,
+        func_type_idx: u32,
+        module_inst: &ModuleInst<'_>,
+    ) -> WResult<usize> {
         let addr = self.next_free_fn_address();
+
+        // todo: can we store ref to func type, or remove vec
+        let func_type = module_inst.types[func_type_idx as usize].clone();
 
         let func_inst = FuncInst::Host {
             ty: func_type,
@@ -128,11 +136,65 @@ impl<'a> Store<'a> {
         addr
     }
 
-    pub fn alloc_module(&mut self, module: Module<'a>) -> WResult<ModuleInst<'a>> {
+    pub fn alloc_module(
+        &mut self,
+        module: Module<'a>,
+        imports: &[(&str, &str, ImportValue)],
+    ) -> WResult<ModuleInst<'a>> {
         let mut module_inst = ModuleInst {
             types: module.types,
             ..ModuleInst::init()
         };
+
+        for import in module.imports {
+            let value = imports
+                .iter()
+                .find(|(module, name, _)| import.mod_name == *module && import.name == *name)
+                .map(|(_, _, val)| val)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("missing import for {}.{}", import.mod_name, import.name)
+                })?;
+
+            match (import.description, value) {
+                (ImportDescription::Func(func), ImportValue::Func(_)) => {
+                    module_inst
+                        .func_addrs
+                        .push(self.alloc_host_fn(func, &module_inst)?);
+                }
+                (ImportDescription::Table(table_ty), ImportValue::Table(_)) => {
+                    // todo: init table, ref?
+                    module_inst
+                        .table_addrs
+                        .push(self.alloc_table(table_ty, Ref::Null));
+                }
+                (ImportDescription::Mem(mem), ImportValue::Mem(init)) => {
+                    // todo: init memory
+                    let idx = self.alloc_memory(mem);
+                    assert!(mem.lim.max.unwrap_or(u32::MAX) >= init.len() as u32);
+
+                    if init.len() > self.mems[idx].data.len() {
+                        self.mems[idx].data = init.to_vec();
+                    } else {
+                        self.mems[idx].data[..init.len()].copy_from_slice(init);
+                    }
+
+                    module_inst.mem_addrs.push(idx);
+                }
+                (ImportDescription::Global(ty), ImportValue::Global(_)) => {
+                    module_inst.global_addrs.push(self.alloc_global(Global {
+                        global_type: ty,
+                        // todo: initialize function here
+                        init: Expr(vec![Instruction::i32Const(0), Instruction::End]),
+                    }))
+                }
+                _ => anyhow::bail!(
+                    "invalid import value: expected {:?} for {}.{}",
+                    import.description,
+                    import.mod_name,
+                    import.name
+                ),
+            }
+        }
 
         module_inst.func_addrs.append(
             &mut module
@@ -142,58 +204,70 @@ impl<'a> Store<'a> {
                 .collect::<WResult<_>>()?,
         );
 
-        module_inst.table_addrs = module
-            .tables
-            .into_iter()
-            .map(|table| self.alloc_table(table, Ref::Null))
-            .collect();
+        module_inst.table_addrs.append(
+            &mut module
+                .tables
+                .into_iter()
+                .map(|table| self.alloc_table(table, Ref::Null))
+                .collect(),
+        );
 
-        module_inst.mem_addrs = module
-            .mems
-            .into_iter()
-            .map(|mem| self.alloc_memory(mem))
-            .collect();
+        module_inst.mem_addrs.append(
+            &mut module
+                .mems
+                .into_iter()
+                .map(|mem| self.alloc_memory(mem))
+                .collect(),
+        );
 
-        module_inst.global_addrs = module
-            .globals
-            .into_iter()
-            .map(|global| self.alloc_global(global))
-            .collect();
+        module_inst.global_addrs.append(
+            &mut module
+                .globals
+                .into_iter()
+                .map(|global| self.alloc_global(global))
+                .collect(),
+        );
 
-        module_inst.elem_addrs = module
-            .elems
-            .into_iter()
-            .map(|elem| self.alloc_elem(elem))
-            .collect();
+        module_inst.elem_addrs.append(
+            &mut module
+                .elems
+                .into_iter()
+                .map(|elem| self.alloc_elem(elem))
+                .collect(),
+        );
 
-        module_inst.data_addrs = module
-            .data
-            .into_iter()
-            // todo: do we need this clone
-            .map(|data| self.alloc_data_segment(data.init.to_vec()))
-            .collect();
+        module_inst.data_addrs.append(
+            &mut module
+                .data
+                .into_iter()
+                // todo: do we need this clone
+                .map(|data| self.alloc_data_segment(data.init.to_vec()))
+                .collect(),
+        );
 
-        module_inst.exports = module
-            .exports
-            .into_iter()
-            .map(|export| ExportInst {
-                name: export.name,
-                value: match export.description {
-                    ExportDescription::FuncIdx(idx) => {
-                        ExternValue::Func(module_inst.func_addrs[idx as usize - 1])
-                    }
-                    ExportDescription::MemIdx(idx) => {
-                        ExternValue::Mem(module_inst.mem_addrs[idx as usize])
-                    }
-                    ExportDescription::GlobalIdx(idx) => {
-                        ExternValue::Global(module_inst.global_addrs[idx as usize])
-                    }
-                    ExportDescription::TableIdx(idx) => {
-                        ExternValue::Table(module_inst.table_addrs[idx as usize])
-                    }
-                },
-            })
-            .collect();
+        module_inst.exports.append(
+            &mut module
+                .exports
+                .into_iter()
+                .map(|export| ExportInst {
+                    name: export.name,
+                    value: match export.description {
+                        ExportDescription::FuncIdx(idx) => {
+                            ExternValue::Func(module_inst.func_addrs[idx as usize])
+                        }
+                        ExportDescription::MemIdx(idx) => {
+                            ExternValue::Mem(module_inst.mem_addrs[idx as usize])
+                        }
+                        ExportDescription::GlobalIdx(idx) => {
+                            ExternValue::Global(module_inst.global_addrs[idx as usize])
+                        }
+                        ExportDescription::TableIdx(idx) => {
+                            ExternValue::Table(module_inst.table_addrs[idx as usize])
+                        }
+                    },
+                })
+                .collect(),
+        );
 
         Ok(module_inst)
     }
