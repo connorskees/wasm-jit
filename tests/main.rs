@@ -321,3 +321,75 @@ test!(
     &[Value::I64(i64::MAX)] => Value::I32(-1),
     &[Value::I64(i64::MIN)] => Value::I32(0),
 );
+
+test!(
+    branch,
+    "./files/branch.wasm",
+    "br",
+    &[Value::I64(-1)] => Value::I64(2),
+    &[Value::I64(4)] => Value::I64(2),
+    &[Value::I64(5)] => Value::I64(1),
+    &[Value::I64(6)] => Value::I64(2),
+    &[Value::I64(i64::MAX)] => Value::I64(2),
+);
+
+test!(
+    branch_table,
+    "./files/branch_table.wasm",
+    "br_table",
+    &[Value::I64(0)] => Value::I64(1),
+    &[Value::I64(2)] => Value::I64(3),
+    &[Value::I64(5)] => Value::I64(9),
+    &[Value::I64(12)] => Value::I64(12),
+    &[Value::I64(-1)] => Value::I64(-1),
+);
+
+test!(
+    nested_branch,
+    "./files/nested_br.wasm",
+    "nested_br",
+    &[Value::I64(0)] => Value::I64(2),
+    &[Value::I64(1)] => Value::I64(2),
+    &[Value::I64(5)] => Value::I64(2),
+    &[Value::I64(17)] => Value::I64(2),
+    &[Value::I64(18)] => Value::I64(2),
+    &[Value::I64(19)] => Value::I64(2),
+);
+
+test!(
+    i64_const_positive,
+    "./files/i64_const.wasm",
+    "i64_const_positive",
+    &[Value::I64(0)] => Value::I64(8),
+);
+test!(
+    i64_const_negative,
+    "./files/i64_const.wasm",
+    "i64_const_negative",
+    &[Value::I64(0)] => Value::I64(-8),
+);
+test!(
+    i64_const_zero,
+    "./files/i64_const.wasm",
+    "i64_const_zero",
+    &[Value::I64(0)] => Value::I64(0),
+);
+
+test!(
+    i32_const_positive,
+    "./files/i32_const.wasm",
+    "i32_const_positive",
+    &[Value::I32(0)] => Value::I32(8),
+);
+test!(
+    i32_const_negative,
+    "./files/i32_const.wasm",
+    "i32_const_negative",
+    &[Value::I32(0)] => Value::I32(-8),
+);
+test!(
+    i32_const_zero,
+    "./files/i32_const.wasm",
+    "i32_const_zero",
+    &[Value::I32(0)] => Value::I32(0),
+);

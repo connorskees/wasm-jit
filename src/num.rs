@@ -64,7 +64,8 @@ pub trait Num: Copy + std::fmt::Debug {
         // convoluted way of determining that N::BYTES > Self::BYTES
         [(); -((N::BYTES < Self::BYTES) as isize) as usize + 1]: Sized,
     {
-        let signed = self.signed();
+        // todo: maybe necessary?
+        let _signed = self.signed();
 
         let mut buffer = [0; N::BYTES];
 

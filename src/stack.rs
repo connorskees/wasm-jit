@@ -15,6 +15,10 @@ impl Stack {
         self.0.push(entry);
     }
 
+    pub fn last(&self) -> Option<&StackEntry> {
+        self.0.last()
+    }
+
     pub fn push_value(&mut self, value: Value) {
         self.push(StackEntry::Value(value));
     }

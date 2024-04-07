@@ -174,7 +174,7 @@ impl<'a> ModuleParser<'a> {
             }
         }
 
-        if shift < size && (byte & 0b1000_0000) != 0 {
+        if shift < size && (byte & 0x40) != 0 {
             result |= !0 << shift;
         }
 
@@ -461,6 +461,7 @@ impl<'a> ModuleParser<'a> {
             let inst = match op_code {
                 OpCode::Block => {
                     let block_type = self.parse_block_type()?;
+                    assert_eq!(block_type, BlockType::Empty);
 
                     let start = instructions.len();
 
@@ -472,6 +473,7 @@ impl<'a> ModuleParser<'a> {
                 }
                 OpCode::Loop => {
                     let block_type = self.parse_block_type()?;
+                    assert_eq!(block_type, BlockType::Empty);
                     let start = instructions.len();
 
                     let label = Label::new_loop(start, block_type);
@@ -482,6 +484,7 @@ impl<'a> ModuleParser<'a> {
                 }
                 OpCode::If => {
                     let block_type = self.parse_block_type()?;
+                    assert_eq!(block_type, BlockType::Empty);
 
                     let start = instructions.len();
 

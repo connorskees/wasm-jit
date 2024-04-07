@@ -141,54 +141,62 @@ impl<'a> Interpreter<'a> {
                 Instruction::Else => todo!("if/else"),
 
                 // ibinop
-                Instruction::i32Add => self.bin_op::<i32>(&|a, b| b.wrapping_add(a))?,
-                Instruction::i64Add => self.bin_op::<i64>(&|a, b| b.wrapping_add(a))?,
-                Instruction::i32Sub => self.bin_op::<i32>(&|a, b| b.wrapping_sub(a))?,
-                Instruction::i64Sub => self.bin_op::<i64>(&|a, b| b.wrapping_sub(a))?,
-                Instruction::i32Mul => self.bin_op::<i32>(&|a, b| b.wrapping_mul(a))?,
-                Instruction::i64Mul => self.bin_op::<i64>(&|a, b| b.wrapping_mul(a))?,
-                Instruction::i32SignedDiv => todo!(),
-                Instruction::i64SignedDiv => todo!(),
-                Instruction::i32UnsignedDiv => todo!(),
-                Instruction::i64UnsignedDiv => todo!(),
-                Instruction::i32SignedRem => todo!(),
-                Instruction::i64SignedRem => todo!(),
-                Instruction::i32UnsignedRem => todo!(),
-                Instruction::i64UnsignedRem => todo!(),
-                Instruction::i32BitwiseAnd => self.bin_op::<i32>(&|a, b| b & a)?,
-                Instruction::i64BitwiseAnd => self.bin_op::<i64>(&|a, b| b & a)?,
-                Instruction::i32BitwiseOr => self.bin_op::<i32>(&|a, b| b | a)?,
-                Instruction::i64BitwiseOr => self.bin_op::<i64>(&|a, b| b | a)?,
-                Instruction::i32BitwiseXor => self.bin_op::<i32>(&|a, b| b ^ a)?,
-                Instruction::i64BitwiseXor => self.bin_op::<i64>(&|a, b| b ^ a)?,
-                Instruction::i32BitwiseShiftLeft => self.bin_op::<i32>(&|a, b| b << a)?,
-                Instruction::i64BitwiseShiftLeft => self.bin_op::<i64>(&|a, b| b << a)?,
-                Instruction::i32SignedBitwiseShiftRight => self.bin_op::<i32>(&|a, b| b >> a)?,
-                Instruction::i64SignedBitwiseShiftRight => self.bin_op::<i64>(&|a, b| b >> a)?,
+                Instruction::i32Add => self.bin_op::<i32>(&|a, b| a.wrapping_add(b))?,
+                Instruction::i64Add => self.bin_op::<i64>(&|a, b| a.wrapping_add(b))?,
+                Instruction::i32Sub => self.bin_op::<i32>(&|a, b| a.wrapping_sub(b))?,
+                Instruction::i64Sub => self.bin_op::<i64>(&|a, b| a.wrapping_sub(b))?,
+                Instruction::i32Mul => self.bin_op::<i32>(&|a, b| a.wrapping_mul(b))?,
+                Instruction::i64Mul => self.bin_op::<i64>(&|a, b| a.wrapping_mul(b))?,
+                Instruction::i32SignedDiv => self.bin_op::<i32>(&|a, b| a / b)?,
+                Instruction::i64SignedDiv => self.bin_op::<i64>(&|a, b| a / b)?,
+                Instruction::i32UnsignedDiv => self.bin_op::<u32>(&|a, b| a / b)?,
+                Instruction::i64UnsignedDiv => self.bin_op::<u64>(&|a, b| a / b)?,
+                Instruction::i32SignedRem => self.bin_op::<i32>(&|a, b| a % b)?,
+                Instruction::i64SignedRem => self.bin_op::<i64>(&|a, b| a % b)?,
+                Instruction::i32UnsignedRem => self.bin_op::<u32>(&|a, b| a % b)?,
+                Instruction::i64UnsignedRem => self.bin_op::<u64>(&|a, b| a % b)?,
+                Instruction::i32BitwiseAnd => self.bin_op::<i32>(&|a, b| a & b)?,
+                Instruction::i64BitwiseAnd => self.bin_op::<i64>(&|a, b| a & b)?,
+                Instruction::i32BitwiseOr => self.bin_op::<i32>(&|a, b| a | b)?,
+                Instruction::i64BitwiseOr => self.bin_op::<i64>(&|a, b| a | b)?,
+                Instruction::i32BitwiseXor => self.bin_op::<i32>(&|a, b| a ^ b)?,
+                Instruction::i64BitwiseXor => self.bin_op::<i64>(&|a, b| a ^ b)?,
+                Instruction::i32BitwiseShiftLeft => self.bin_op::<i32>(&|a, b| a << b)?,
+                Instruction::i64BitwiseShiftLeft => self.bin_op::<i64>(&|a, b| a << b)?,
+                Instruction::i32SignedBitwiseShiftRight => self.bin_op::<i32>(&|a, b| a >> b)?,
+                Instruction::i64SignedBitwiseShiftRight => self.bin_op::<i64>(&|a, b| a >> b)?,
                 Instruction::i32UnsignedBitwiseShiftRight => self.bin_op::<i32>(&|a, b| {
-                    i32::reinterpret(u32::reinterpret(b) >> u32::reinterpret(a))
+                    i32::reinterpret(u32::reinterpret(a) >> u32::reinterpret(b))
                 })?,
                 Instruction::i64UnsignedBitwiseShiftRight => self.bin_op::<i64>(&|a, b| {
-                    i64::reinterpret(u64::reinterpret(b) >> u64::reinterpret(a))
+                    i64::reinterpret(u64::reinterpret(a) >> u64::reinterpret(b))
                 })?,
-                Instruction::i32RotateLeft => todo!(),
-                Instruction::i64RotateLeft => todo!(),
-                Instruction::i32RotateRight => todo!(),
-                Instruction::i64RotateRight => todo!(),
+                Instruction::i32RotateLeft => {
+                    self.bin_op::<i32>(&|a, b| a.rotate_left(u32::reinterpret(b & 31)))?
+                }
+                Instruction::i64RotateLeft => {
+                    self.bin_op::<i64>(&|a, b| a.rotate_left(u64::reinterpret(b & 63) as u32))?
+                }
+                Instruction::i32RotateRight => {
+                    self.bin_op::<i32>(&|a, b| a.rotate_right(u32::reinterpret(b & 31)))?
+                }
+                Instruction::i64RotateRight => {
+                    self.bin_op::<i64>(&|a, b| a.rotate_right(u64::reinterpret(b & 63) as u32))?
+                }
 
                 // fbinop
-                Instruction::f32Add => self.bin_op::<f32>(&|a, b| b + a)?,
-                Instruction::f64Add => self.bin_op::<f64>(&|a, b| b + a)?,
-                Instruction::f32Sub => self.bin_op::<f32>(&|a, b| b - a)?,
-                Instruction::f64Sub => self.bin_op::<f64>(&|a, b| b - a)?,
-                Instruction::f32Mul => self.bin_op::<f32>(&|a, b| b * a)?,
-                Instruction::f64Mul => self.bin_op::<f64>(&|a, b| b * a)?,
-                Instruction::f32Div => self.bin_op::<f32>(&|a, b| b / a)?,
-                Instruction::f64Div => self.bin_op::<f64>(&|a, b| b / a)?,
-                Instruction::f32Min => self.bin_op::<f32>(&|a, b| b.min(a))?,
-                Instruction::f64Min => self.bin_op::<f64>(&|a, b| b.min(a))?,
-                Instruction::f32Max => self.bin_op::<f32>(&|a, b| b.max(a))?,
-                Instruction::f64Max => self.bin_op::<f64>(&|a, b| b.max(a))?,
+                Instruction::f32Add => self.bin_op::<f32>(&|a, b| a + b)?,
+                Instruction::f64Add => self.bin_op::<f64>(&|a, b| a + b)?,
+                Instruction::f32Sub => self.bin_op::<f32>(&|a, b| a - b)?,
+                Instruction::f64Sub => self.bin_op::<f64>(&|a, b| a - b)?,
+                Instruction::f32Mul => self.bin_op::<f32>(&|a, b| a * b)?,
+                Instruction::f64Mul => self.bin_op::<f64>(&|a, b| a * b)?,
+                Instruction::f32Div => self.bin_op::<f32>(&|a, b| a / b)?,
+                Instruction::f64Div => self.bin_op::<f64>(&|a, b| a / b)?,
+                Instruction::f32Min => self.bin_op::<f32>(&|a, b| a.min(b))?,
+                Instruction::f64Min => self.bin_op::<f64>(&|a, b| a.min(b))?,
+                Instruction::f32Max => self.bin_op::<f32>(&|a, b| a.max(b))?,
+                Instruction::f64Max => self.bin_op::<f64>(&|a, b| a.max(b))?,
                 Instruction::f32CopySign => todo!(),
                 Instruction::f64CopySign => todo!(),
 
@@ -275,15 +283,32 @@ impl<'a> Interpreter<'a> {
                 Instruction::f64Ge => self.rel_op::<f64>(&|a, b| a >= b)?,
 
                 // cvtop
-                Instruction::f64SignedConvertI64 => self.f64_signed_convert_i64()?,
-                Instruction::f64PromoteF32 => self.f64_promote_f32()?,
-                Instruction::f32DemoteF64 => self.f32_demote_f64()?,
-                Instruction::i32ReinterpretF32 => self.i32_reinterpret_f32()?,
+                Instruction::f64SignedConvertI64 => self.cvt_op::<i64, f64>(&|a| a as f64)?,
+                Instruction::f64PromoteF32 => self.cvt_op::<f32, f64>(&|a| a as f64)?,
+                Instruction::f32DemoteF64 => self.cvt_op::<f64, f32>(&|a| a as f32)?,
+                Instruction::i32ReinterpretF32 => self.reinterpret::<f32, i32>()?,
+                Instruction::i64ReinterpretF64 => self.reinterpret::<f64, i64>()?,
+                Instruction::f32ReinterpretI32 => self.reinterpret::<i32, f32>()?,
+                Instruction::f64ReinterpretI64 => self.reinterpret::<i64, f64>()?,
+                Instruction::i32WrapI64 => self.cvt_op::<i64, i32>(&|a| a as i32)?,
+                Instruction::i64Extendi32Signed => self.cvt_op::<i32, i64>(&|a| a as i64)?,
+                Instruction::i64Extendi32Unsigned => self.cvt_op::<u32, i64>(&|a| a as i64)?,
+                Instruction::i32Extend8Signed => self.cvt_op::<i32, i32>(&|a| a as i8 as i32)?,
+                Instruction::i32Extend16Signed => self.cvt_op::<i32, i32>(&|a| a as i16 as i32)?,
+                Instruction::i64Extend8Signed => self.cvt_op::<i64, i64>(&|a| a as i8 as i64)?,
+                Instruction::i64Extend16Signed => self.cvt_op::<i64, i64>(&|a| a as i16 as i64)?,
+                Instruction::i64Extend32Signed => self.cvt_op::<i64, i64>(&|a| a as i32 as i64)?,
 
                 Instruction::i32Store(mem_arg) => self.store::<i32>(*mem_arg, frame)?,
                 Instruction::i64Store(mem_arg) => self.store::<i64>(*mem_arg, frame)?,
                 Instruction::f32Store(mem_arg) => self.store::<f32>(*mem_arg, frame)?,
                 Instruction::f64Store(mem_arg) => self.store::<f64>(*mem_arg, frame)?,
+
+                Instruction::i32Store8(mem_arg) => self.store_n::<i32, 1>(*mem_arg, frame)?,
+                Instruction::i32Store16(mem_arg) => self.store_n::<i32, 2>(*mem_arg, frame)?,
+                Instruction::i64Store8(mem_arg) => self.store_n::<i64, 1>(*mem_arg, frame)?,
+                Instruction::i64Store16(mem_arg) => self.store_n::<i64, 2>(*mem_arg, frame)?,
+                Instruction::i64Store32(mem_arg) => self.store_n::<i64, 4>(*mem_arg, frame)?,
 
                 Instruction::i32Load(mem_arg) => self.load::<i32>(*mem_arg, frame)?,
                 Instruction::i64Load(mem_arg) => self.load::<i64>(*mem_arg, frame)?,
@@ -339,10 +364,63 @@ impl<'a> Interpreter<'a> {
                     }
                 }
                 Instruction::Branch(n) => idx = self.branch(*n)?,
-                Instruction::End => {}
+                Instruction::BranchTable(table, fallback) => {
+                    idx = self.branch_table(table, *fallback)?
+                }
+                Instruction::End => self.end()?,
                 Instruction::Call(fn_idx) => self.call(*fn_idx, frame)?,
                 Instruction::Return => break,
-                inst => todo!("{:?}", inst),
+
+                Instruction::Unreachable => todo!(),
+                Instruction::CallIndirect(_, _) => todo!(),
+                Instruction::Select => self.select()?,
+                Instruction::SelectT(_) => todo!(),
+                Instruction::TableGet(_) => todo!(),
+                Instruction::TableSet(_) => todo!(),
+                Instruction::MemorySize => todo!(),
+                Instruction::MemoryGrow => todo!(),
+
+                Instruction::i32TruncF32Signed => todo!(),
+                Instruction::i32TruncF32Unsigned => todo!(),
+                Instruction::i32TruncF64Signed => todo!(),
+                Instruction::i32TruncF64Unsigned => todo!(),
+
+                Instruction::i64TruncF32Signed => todo!(),
+                Instruction::i64TruncF32Unsigned => todo!(),
+                Instruction::i64TruncF64Signed => todo!(),
+                Instruction::i64TruncF64Unsigned => todo!(),
+
+                Instruction::f32SignedConvertI32 => todo!(),
+                Instruction::f32UnsignedConvertI32 => todo!(),
+                Instruction::f32SignedConvertI64 => todo!(),
+                Instruction::f32UnsignedConvertI64 => todo!(),
+                Instruction::f64SignedConvertI32 => todo!(),
+                Instruction::f64UnsignedConvertI32 => todo!(),
+                Instruction::f64UnsignedConvertI64 => todo!(),
+
+                Instruction::RefNull(_) => todo!(),
+                Instruction::RefIsNull => todo!(),
+                Instruction::RefFunc(_) => todo!(),
+
+                Instruction::i32TruncSatf32Signed => todo!(),
+                Instruction::i32TruncSatf32Unsigned => todo!(),
+                Instruction::i32TruncSatf64Signed => todo!(),
+                Instruction::i32TruncSatf64Unsigned => todo!(),
+                Instruction::i64TruncSatf32Signed => todo!(),
+                Instruction::i64TruncSatf32Unsigned => todo!(),
+                Instruction::i64TruncSatf64Signed => todo!(),
+                Instruction::i64TruncSatf64Unsigned => todo!(),
+
+                Instruction::MemoryInit(_) => todo!(),
+                Instruction::DataDrop(_) => todo!(),
+                Instruction::MemoryCopy => todo!(),
+                Instruction::MemoryFill => todo!(),
+                Instruction::TableInit(_, _) => todo!(),
+                Instruction::ElemDrop(_) => todo!(),
+                Instruction::TableCopy(_, _) => todo!(),
+                Instruction::TableGrow(_) => todo!(),
+                Instruction::TableSize(_) => todo!(),
+                Instruction::TableFill(_) => todo!(),
             }
 
             idx += 1;
@@ -412,35 +490,15 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
-    fn f64_signed_convert_i64(&mut self) -> WResult<()> {
-        let a = self.stack.pop_i64()?;
+    fn reinterpret<From: Num, To: Num>(&mut self) -> WResult<()>
+    where
+        // checking To::BYTES == From::BYTES
+        [(); From::BYTES - To::BYTES]: Sized,
+        [(); To::BYTES - From::BYTES]: Sized,
+    {
+        let a = From::from_value(self.stack.pop_value()?)?;
 
-        self.stack.push_value(Value::F64(a as f64));
-
-        Ok(())
-    }
-
-    fn f64_promote_f32(&mut self) -> WResult<()> {
-        let a = self.stack.pop_f32()?;
-
-        self.stack.push_value(Value::F64(a as f64));
-
-        Ok(())
-    }
-
-    fn f32_demote_f64(&mut self) -> WResult<()> {
-        let a = self.stack.pop_f64()?;
-
-        self.stack.push_value(Value::F32(a as f32));
-
-        Ok(())
-    }
-
-    fn i32_reinterpret_f32(&mut self) -> WResult<()> {
-        let a = self.stack.pop_f32()?;
-
-        self.stack
-            .push_value(Value::I32(i32::from_le_bytes(a.to_le_bytes())));
+        self.stack.push_value(To::reinterpret(a).as_value());
 
         Ok(())
     }
@@ -455,8 +513,64 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
+    fn cvt_op<N: Num, N2: Num>(&mut self, op: &dyn Fn(N) -> N2) -> WResult<()> {
+        let a = N::from_value(self.stack.pop_value()?)?;
+
+        let c = op(a);
+
+        self.stack.push_value(c.as_value());
+
+        Ok(())
+    }
+
+    fn branch_table(&mut self, table: &[u32], fallback: u32) -> WResult<usize> {
+        let i = self.stack.pop_i32()? as usize;
+
+        if i < table.len() {
+            self.branch(table[i])
+        } else {
+            self.branch(fallback)
+        }
+    }
+
+    fn select(&mut self) -> WResult<()> {
+        let c = self.stack.pop_i32()?;
+
+        let val2 = self.stack.pop_value()?;
+        let val1 = self.stack.pop_value()?;
+
+        if val1.value_type() != val2.value_type() {
+            self.trap("mismatched select value types");
+        }
+
+        if c != 0 {
+            self.stack.push_value(val1);
+        } else {
+            self.stack.push_value(val2);
+        }
+
+        Ok(())
+    }
+
     fn drop(&mut self) -> WResult<()> {
         self.stack.pop_value()?;
+
+        Ok(())
+    }
+
+    fn end(&mut self) -> WResult<()> {
+        let mut vals = Vec::new();
+
+        while let Some(entry) = self.stack.pop() {
+            match entry {
+                StackEntry::Activation(..) | StackEntry::Value(..) => vals.push(entry),
+                StackEntry::Label(..) => break,
+            }
+        }
+
+        for v in vals.into_iter().rev() {
+            self.stack.push(v);
+        }
 
         Ok(())
     }
@@ -474,8 +588,6 @@ impl<'a> Interpreter<'a> {
                 }
             }
         }
-
-        self.stack.push(StackEntry::Label(label));
 
         for val in vals {
             self.stack.push(val);
@@ -562,24 +674,34 @@ impl<'a> Interpreter<'a> {
     where
         [(); N::BYTES]: Sized,
     {
+        self.store_n::<N, { N::BYTES }>(mem_arg, frame)
+    }
+
+    fn store_n<N: Num, const BYTES: usize>(
+        &mut self,
+        mem_arg: MemoryOperand,
+        frame: &Frame,
+    ) -> WResult<()>
+    where
+        [(); N::BYTES]: Sized,
+    {
         let module = &self.module_insts[frame.module_idx as usize];
         let a = module.mem_addrs[0];
 
         let mem = &mut self.store.mems[a];
 
         let c = N::from_value(self.stack.pop_value()?)?;
+        let i = u32::reinterpret(self.stack.pop_i32()?);
 
-        let i = self.stack.pop_i32()?;
+        let ea = (i + mem_arg.offset) as usize;
 
-        let ea = (i + mem_arg.offset as i32) as usize;
-
-        if ea + N::BYTES > mem.data.len() {
-            self.trap("oob write");
+        if ea + BYTES > mem.data.len() {
+            self.trap(&format!("oob write at index {ea}"));
         }
 
-        let buffer = c.to_le_bytes();
+        let buffer = &c.to_le_bytes()[..BYTES];
 
-        mem.data[ea..(ea + N::BYTES)].copy_from_slice(&buffer);
+        mem.data[ea..(ea + BYTES)].copy_from_slice(buffer);
 
         Ok(())
     }
@@ -615,6 +737,7 @@ impl<'a> Interpreter<'a> {
     where
         [(); N::BYTES]: Sized,
         [(); N2::BYTES]: Sized,
+        // convoluted way of determining that N::BYTES > N2::BYTES
         [(); -((N::BYTES < N2::BYTES) as isize) as usize + 1]: Sized,
     {
         let buffer = self.load_buffer(mem_arg, frame, N2::BYTES)?;

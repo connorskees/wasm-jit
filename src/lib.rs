@@ -266,6 +266,16 @@ impl Value {
             Self::Ref(..) | Self::I64(..) | Self::F64(..) => 64,
         }
     }
+
+    pub fn value_type(&self) -> ValueType {
+        match self {
+            Value::Ref(..) => ValueType::ExternRef,
+            Value::I32(..) => ValueType::I32,
+            Value::I64(..) => ValueType::I64,
+            Value::F32(..) => ValueType::F32,
+            Value::F64(..) => ValueType::F64,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
