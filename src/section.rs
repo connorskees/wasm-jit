@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     DataSegment, ElementSegment, Export, FuncType, Function, Global, Import, MemoryType, TableType,
 };
@@ -71,8 +73,10 @@ pub struct ElementSection {
 #[derive(Debug, Clone, PartialEq)]
 pub enum CustomSection<'a> {
     Name(NameSection),
-    Unknown(u32, &'a [u8]),
+    Unknown { name: &'a str, contents: &'a [u8] },
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct NameSection {}
+pub enum NameSection {
+    Module(HashMap<u32, String>),
+}

@@ -256,16 +256,14 @@ impl<'a> ModuleParser<'a> {
 
     fn parse_custom_section(&mut self, size: u32) -> WResult<CustomSection<'a>> {
         let start = self.cursor;
-        let id = self.read_u32()?;
-        // u32s are variable-length encoded, so we must do math to determine
-        // how many bytes we read
-        let num_id_bytes = self.cursor - start;
+        let name = self.parse_name()?;
+        let num_range_bytes = self.cursor - start;
 
-        let section = match id {
-            0 => CustomSection::Name(self.parse_name_section()?),
+        let section = match name {
+            "name" => CustomSection::Name(self.parse_name_section()?),
             _ => {
-                let range = self.read_range(size as usize - num_id_bytes)?;
-                CustomSection::Unknown(id, range)
+                let contents = self.read_range(size as usize - num_range_bytes)?;
+                CustomSection::Unknown { name, contents }
             }
         };
 
@@ -273,11 +271,14 @@ impl<'a> ModuleParser<'a> {
     }
 
     fn parse_name_section(&mut self) -> WResult<NameSection> {
-        self.expect_byte(b'n')?;
-        self.expect_byte(b'a')?;
-        self.expect_byte(b'm')?;
-        self.expect_byte(b'e')?;
-        todo!()
+        let subsection_id = self.next_byte()?;
+
+        match subsection_id {
+            0 => todo!("module name"),
+            1 => todo!("function name"),
+            2 => todo!("local name"),
+            _ => todo!("invalid name section subsection: {subsection_id}"),
+        }
     }
 
     fn parse_element_section(&mut self) -> WResult<ElementSection> {

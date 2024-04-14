@@ -9,7 +9,7 @@ pub use interpreter::Interpreter;
 pub use jit::WasmJit;
 use opcode::Instruction;
 use parse::ModuleParser;
-use section::CustomSection;
+pub use section::CustomSection;
 
 mod error;
 mod instance;
@@ -40,6 +40,20 @@ pub struct Module<'a> {
 impl<'a> Module<'a> {
     pub fn new(buffer: &'a [u8]) -> WResult<Self> {
         ModuleParser::new(buffer).parse()
+    }
+
+    pub fn custom_section_with_name(&self, name: &str) -> Option<&'a [u8]> {
+        self.custom.iter().find_map(|s| match s {
+            &CustomSection::Unknown {
+                name: s_name,
+                contents,
+            } if s_name == name => Some(contents),
+            _ => None,
+        })
+    }
+
+    pub fn custom_sections(&self) -> &[CustomSection<'a>] {
+        &self.custom
     }
 }
 

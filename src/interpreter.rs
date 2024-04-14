@@ -1,5 +1,7 @@
 use std::convert::TryInto;
 
+use anyhow::Context;
+
 use crate::{
     error::{WResult, WasmError},
     instance::{FuncInst, ModuleInst},
@@ -124,7 +126,7 @@ impl<'a> Interpreter<'a> {
                 self.invoke_expr(&expr, &mut frame)?;
 
                 Ok(if has_return_value {
-                    Some(self.stack.pop_value()?)
+                    Some(self.stack.pop_value().context("return value")?)
                 } else {
                     None
                 })

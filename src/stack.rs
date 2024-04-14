@@ -4,7 +4,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Stack(Vec<StackEntry>);
+pub struct Stack(pub Vec<StackEntry>);
 
 impl Stack {
     pub fn new() -> Self {
