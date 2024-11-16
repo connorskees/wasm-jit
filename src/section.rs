@@ -72,11 +72,27 @@ pub struct ElementSection {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CustomSection<'a> {
-    Name(NameSection),
+    Name(NameSection<'a>),
     Unknown { name: &'a str, contents: &'a [u8] },
 }
 
+pub type NameMap<'a> = HashMap<u32, &'a str>;
+
 #[derive(Debug, Clone, PartialEq)]
-pub enum NameSection {
-    Module(HashMap<u32, String>),
+pub struct NameSection<'a> {
+    pub subsections: Vec<NameSubsection<'a>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum NameSubsection<'a> {
+    Module(&'a str),
+    Func(NameMap<'a>),
+    Local(HashMap<u32, &'a str>),
+    Label(NameMap<'a>),
+    Table(NameMap<'a>),
+    Memory(NameMap<'a>),
+    Global(NameMap<'a>),
+    Elem(NameMap<'a>),
+    Data(NameMap<'a>),
+    Tag(NameMap<'a>),
 }
